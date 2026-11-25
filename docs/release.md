@@ -4,8 +4,9 @@ Releases are cut from `main` by pushing a `vX.Y.Z` tag. The `release` workflow c
 plugin and crate versions match the tag, builds archives for five targets
 (`aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux-gnu`,
 `aarch64-unknown-linux-gnu`, `x86_64-pc-windows-msvc`) and attaches them with a combined
-`SHA256SUMS` to a GitHub release with generated notes. The Homebrew cask and crates.io steps are
-manual.
+`SHA256SUMS` to a GitHub release with generated notes, then writes the Homebrew cask into
+`orkono/homebrew-tap` (the `cask` workflow, needs the `HOMEBREW_TAP_TOKEN` secret). The crates.io
+step is manual.
 
 ## Checklist
 
@@ -28,20 +29,16 @@ manual.
    ```bash
    cargo publish
    ```
-6. Update the Homebrew cask (manual, below).
+6. Check the `cask` job pushed `Casks/lecend.rb` to the tap (below).
 7. Smoke test: download an archive, verify its checksum, run `lecend version`.
 8. Users update with `brew upgrade --cask lecend` (or `cargo install lecend --force`), then
    `claude plugin marketplace update lecend` and `claude plugin update lecend@lecend`.
 
-## Homebrew cask (manual)
+## Homebrew cask
 
 The tap is the public repository `orkono/homebrew-tap`; the cask lives at `Casks/lecend.rb`.
-For each release, edit it by hand:
-
-1. Set `version "X.Y.Z"`.
-2. Copy the SHA-256 of each archive from `SHA256SUMS` into the matching `sha256` entry
-   (macOS arm64 and x86_64, Linux arm64 and x86_64).
-3. Point each `url` at
-   `https://github.com/orkono/lecend/releases/download/vX.Y.Z/lecend-vX.Y.Z-<target>.tar.gz`
-   and keep `binary "lecend-vX.Y.Z-<target>/lecend"` in step with the archive's folder name.
-4. Commit and push the tap, then check `brew install --cask orkono/tap/lecend` on a clean machine.
+`scripts/cask.sh <version> <SHA256SUMS>` prints it, and the `cask` workflow pushes it with the
+repository secret `HOMEBREW_TAP_TOKEN` (a token with write access to the tap, the same one
+cestafet uses). Without the secret the job warns and skips. To redo a release's cask, run the
+`cask` workflow by hand with its tag. Then check `brew install --cask orkono/tap/lecend` on a
+clean machine.

@@ -80,3 +80,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
+
+  cask:
+    needs: publish
+    uses: ./.github/workflows/cask.yml
+    with:
+      tag: ${{ github.ref_name }}
+    secrets: inherit
