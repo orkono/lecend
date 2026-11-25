@@ -114,7 +114,10 @@ async function changeAnswer($: EngineInterface, change: Change): Promise<string>
   if (!changed.ok) {
     return textOf(changed)
   }
-  await refreshPane($)
+  const refreshed = await refreshPane($)
+  if (!refreshed.ok) {
+    $.ui.log(`lecend: pane not refreshed: ${refreshed.error}`, { to: 'debug' })
+  }
   if (change.kind === 'forget') {
     return `Forgotten ${change.label}.`
   }

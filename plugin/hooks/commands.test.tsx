@@ -157,6 +157,21 @@ test('forget answers Forgotten and off switches capture', async ($, on) => {
   ])
 })
 
+test('failed pane refresh after edit is logged', async ($, on) => {
+  const logged: { text: string; to: unknown }[] = []
+  on('ui.log', (_, e) => {
+    logged.push({ text: e.text, to: e.to })
+
+    return { value: undefined }
+  })
+  fakeBinary(on, { ...BASE, list: { exitCode: 1, stdout: '{"error":"db locked"}' } })
+
+  const answer = await lecend($, 'pin W6')
+
+  expect(answer.text).toBe('W6  the sixth wave of the migration\n    status: done')
+  expect(logged).toEqual([{ text: 'lecend: pane not refreshed: db locked', to: 'debug' }])
+})
+
 test('a binary error is shown as lecend: <error>', async ($, on) => {
   fakeBinary(on, {
     ...BASE,
