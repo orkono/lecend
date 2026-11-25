@@ -13,7 +13,7 @@ pub fn ensure(conn: &Connection, sid: &str) -> Result<()> {
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior};
 use serde_json::{json, Value};
 
-fn immediate(conn: &Connection) -> Result<Transaction<'_>> {
+pub(crate) fn immediate(conn: &Connection) -> Result<Transaction<'_>> {
     Ok(Transaction::new_unchecked(
         conn,
         TransactionBehavior::Immediate,

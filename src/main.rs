@@ -2,7 +2,9 @@ mod apply;
 mod db;
 mod edit;
 mod entry;
+mod fork;
 mod labels;
+mod lineage;
 mod query;
 mod scan;
 mod session;
@@ -158,6 +160,26 @@ enum Command {
         #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
         label: Vec<String>,
     },
+    /// Copy a parent session's glossary once (`--from`), or mark no parent (`--none`).
+    #[command(group(clap::ArgGroup::new("source").required(true).multiple(false)
+        .args(["from", "none"])))]
+    Fork {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long)]
+        session: String,
+        #[arg(long)]
+        from: Option<String>,
+        #[arg(long = "at-turn", requires = "from")]
+        at_turn: Option<i64>,
+        #[arg(long)]
+        none: bool,
+    },
+    /// Find the fork parent of a transcript by shared user-message uuids.
+    Lineage {
+        #[arg(long)]
+        transcript: PathBuf,
+    },
 }
 
 /// Which correction `edit` makes; clap guarantees exactly one is given.
@@ -267,6 +289,20 @@ fn run(cli: Cli) -> Result<Value> {
             edit::unforget(&conn, &session, &label.join(" "))?;
             Ok(json!({ "ok": true }))
         }
+        Command::Fork {
+            db,
+            session,
+            from,
+            at_turn,
+            ..
+        } => {
+            let conn = open_session(&db, &session)?;
+            match from {
+                Some(parent) => fork::from(&conn, &session, &parent, at_turn),
+                None => fork::none(&conn, &session),
+            }
+        }
+        Command::Lineage { transcript } => Ok(lineage::run(&transcript)),
         Command::Show { .. } | Command::List { .. } | Command::History { .. } => {
             unreachable!("text commands are handled by dispatch")
         }
