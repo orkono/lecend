@@ -39,8 +39,11 @@ export async function refreshPane($: EngineInterface): Promise<LecendResult> {
   return listed
 }
 
-export async function openPane($: EngineInterface): Promise<void> {
-  await $.ui.open({ id: PANE_ID, title: PANE_TITLE })
+/** Opens the pane; whether it is drawn now. Rejects when the engine refuses it. */
+export async function openPane($: EngineInterface): Promise<boolean> {
+  const opened = await $.ui.open({ id: PANE_ID, title: PANE_TITLE })
+
+  return opened.isPlaced
 }
 
 /** Draws the pane: bold label, definition, dimmed status and previous definition. */
@@ -53,7 +56,7 @@ export function registerPane(on: On): void {
       <Box flexDirection="column">
         {list.length === 0 && <Text dimColor>No labels yet.</Text>}
         {list.map(entry => (
-          <Box flexDirection="column" marginBottom={1}>
+          <Box key={entry.label} flexDirection="column" marginBottom={1}>
             <Text bold>{entry.label}</Text>
             <Text>{entry.definition}</Text>
             {entry.status !== null && <Text dimColor>→ {entry.status}</Text>}

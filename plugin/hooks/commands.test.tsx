@@ -240,3 +240,23 @@ test('pane renders entries', async ($, on) => {
     await ui.unmount()
   }
 })
+
+test('pane on a narrow window says when it will open', async ($, on) => {
+  on('ui.open', () => ({ value: { isPlaced: false, reason: 'below 110 columns (80 now)' } }))
+  fakeBinary(on, { ...BASE, list: { stdout: JSON.stringify(ENTRIES) } })
+
+  const answer = await lecend($, 'pane')
+
+  expect(answer.text).toBe('lecend pane will open when the window is at least 110 columns wide.')
+  expect(answer.isTextDisplayOnly).toBe(true)
+})
+
+test('pane refused by the engine answers its reason', async ($, on) => {
+  on('ui.open', () => ({ deny: 'pane held by another plugin' }))
+  fakeBinary(on, { ...BASE, list: { stdout: JSON.stringify(ENTRIES) } })
+
+  const answer = await lecend($, 'pane')
+
+  expect(answer.text).toMatch(/^lecend: .*pane held by another plugin$/)
+  expect(answer.isTextDisplayOnly).toBe(true)
+})

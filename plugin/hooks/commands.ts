@@ -134,14 +134,19 @@ async function captureAnswer($: EngineInterface, kind: 'off' | 'on'): Promise<st
   return ran.ok ? `lecend capture is ${kind} for this session.` : textOf(ran)
 }
 
+const PANE_WAITS = 'lecend pane will open when the window is at least 110 columns wide.'
+
 async function paneAnswer($: EngineInterface): Promise<string> {
   const refreshed = await refreshPane($)
   if (!refreshed.ok) {
     return textOf(refreshed)
   }
-  await openPane($)
-
-  return 'lecend pane opened.'
+  try {
+    const placed = await openPane($)
+    return placed ? 'lecend pane opened.' : PANE_WAITS
+  } catch (err) {
+    return `lecend: ${(err as Error)?.message ?? err}`
+  }
 }
 
 /** The display-only text that answers one `/lecend` command. */

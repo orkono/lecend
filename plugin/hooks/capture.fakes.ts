@@ -13,7 +13,7 @@ export const GOOD_DIFF = {
   redefine: [],
   status: [],
 }
-const SCAN = { shouldCall: true, knownLabels: [], candidates: ['W6'], entries: [] }
+const SCAN = { shouldCall: true, knownLabels: [], candidates: ['W6'], mentioned: [], entries: [] }
 export const BUDGET_TOAST = 'lecend: capture budget reached for this session'
 
 type Run = { sub: string; argv: readonly string[]; stdin?: string; timeoutMs?: number }
@@ -28,6 +28,12 @@ export type World = {
   logs: string[]
   toasts: string[]
   session: string
+  /** `CLAUDE_CODE_SESSION_ID` in the hook environment; unset, `session`. */
+  envSession?: string
+  /** Makes `$.ui.toast` throw this error. */
+  toastError?: string
+  /** Known labels `lecend scan` reports as mentioned in a turn. */
+  mentioned: string[]
   state: { captureOff: boolean; modelCalls: number }
   /** Turns the fake binary has recorded for the current session. */
   turns: number
@@ -66,8 +72,13 @@ function binaryReply(world: World, sub: string, argv: readonly string[], stdin?:
       if (world.forkError !== undefined) return JSON.stringify({ error: world.forkError })
       world.events.push(`fork:${argv[argv.indexOf('--from') + 1]}@${argv[argv.indexOf('--at-turn') + 1]}`)
       return '{"copied":3,"already":false}'
-    case 'scan':
-      return JSON.stringify(SCAN)
+    case 'scan': {
+      const { mentioned } = world
+      if (JSON.parse(stdin ?? '{}').mentionsOnly === true) {
+        return JSON.stringify({ ...SCAN, shouldCall: mentioned.length > 0, candidates: [], mentioned })
+      }
+      return JSON.stringify({ ...SCAN, mentioned })
+    }
     case 'usage':
       world.state.modelCalls += 1
       return JSON.stringify({ modelCalls: world.state.modelCalls })
@@ -100,6 +111,7 @@ export function fakeWorld(on: On): World {
     logs: [],
     toasts: [],
     session: 'sess-1',
+    mentioned: [],
     state: { captureOff: false, modelCalls: 0 },
     turns: 0,
     transcript: '',
@@ -115,8 +127,9 @@ export function fakeWorld(on: On): World {
   on('turn.complete', (_, e) => ({ text: e.answer }))
   on('session.info', () => ({ value: { transcriptPath: world.transcript } as SessionInfo }))
   on('process.hookEnv', () => ({
-    value: { CLAUDE_PLUGIN_DATA: '/data', CLAUDE_CODE_SESSION_ID: world.session },
+    value: { CLAUDE_PLUGIN_DATA: '/data', CLAUDE_CODE_SESSION_ID: world.envSession ?? world.session },
   }))
+  on('session.id', () => ({ value: world.session }))
   on('process.run', (_, e) => {
     const sub = e.argv[1] ?? ''
     world.runs.push({ sub, argv: e.argv, stdin: e.init?.stdin, timeoutMs: e.init?.timeoutMs })
@@ -141,6 +154,7 @@ export function fakeWorld(on: On): World {
     return { value: undefined }
   })
   on('ui.toast', (_, e) => {
+    if (world.toastError !== undefined) throw new Error(world.toastError)
     world.toasts.push(e.text)
     return { value: undefined }
   })
@@ -151,6 +165,20 @@ export function fakeWorld(on: On): World {
 /** Starts the session; `{}` leaves `isInteractive` out. */
 export async function start($: Engine, fields: { isInteractive?: boolean } = { isInteractive: true }) {
   await $.session.start({ cwd: '/', surface: 'terminal', ...fields } as SessionStartInput)
+}
+
+/**
+ * A notification's turn: its `prompt.submit` (origin `kind`, session idle),
+ * its start and answer, then the background job runs.
+ */
+export async function notifiedTurn(
+  $: Engine, clock: MockClock, turnId: string, answer: string, kind: 'task-notification' | 'sdk' = 'task-notification',
+) {
+  const text = '<task-notification>HEAD 1992ad0 W9</task-notification>'
+  await $.prompt.submit({ text, wait: false, origin: { kind } })
+  await $.turn.start({ text, turnId })
+  await $.turn.complete({ answer, durationMs: 1, isAborted: false, turnId, reason: 'answer' })
+  await clock.settle()
 }
 
 /** One main-loop turn: its start with `prompt`, its answer, then the background job runs. */

@@ -28,11 +28,22 @@ export async function hasBinary($: EngineInterface): Promise<boolean> {
   return binaryFound ?? (await checkBinary($))
 }
 
-/** The current session's id: the environment's, else the engine's. */
+/**
+ * The current session's id: the engine's, else the environment's. The
+ * environment's may be stale after /clear, so it is only a fallback.
+ */
 export async function currentSessionId($: EngineInterface): Promise<string> {
+  try {
+    const id = await $.session.id()
+    if (id !== '') return id
+  } catch {
+    // Fall back to the environment below.
+  }
   const env = await $.process.hookEnv()
+  const id = env.CLAUDE_CODE_SESSION_ID
+  if (id === undefined || id === '') throw new Error('no session id from the engine or CLAUDE_CODE_SESSION_ID')
 
-  return env.CLAUDE_CODE_SESSION_ID || (await $.session.id())
+  return id
 }
 
 async function sessionArgs($: EngineInterface, session?: string): Promise<string[]> {
