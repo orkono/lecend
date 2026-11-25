@@ -62,14 +62,20 @@ enum Command {
         #[arg(long, required = true)]
         bump: bool,
     },
-    /// One-time cost notice flag.
+    /// One-time cost notice flag: check and set it, or reset it after a failed showing.
     Notice {
         #[arg(long)]
         db: PathBuf,
         #[arg(long)]
         session: String,
-        #[arg(long = "check-and-set", required = true)]
+        #[arg(
+            long = "check-and-set",
+            conflicts_with = "reset",
+            required_unless_present = "reset"
+        )]
         check_and_set: bool,
+        #[arg(long)]
+        reset: bool,
     },
     /// Decide whether a turn needs the model (stdin `{prompt, answer, stoplist}`).
     Scan {
@@ -247,9 +253,17 @@ fn run(cli: Cli) -> Result<Value> {
             let conn = open_session(&db, &session)?;
             Ok(json!({ "modelCalls": session::bump_usage(&conn, &session)? }))
         }
-        Command::Notice { db, session, .. } => {
+        Command::Notice {
+            db, session, reset, ..
+        } => {
             let conn = open_session(&db, &session)?;
-            Ok(json!({ "shown": session::check_and_set_notice(&conn)? }))
+            let shown = if reset {
+                session::reset_notice(&conn)?;
+                false
+            } else {
+                session::check_and_set_notice(&conn)?
+            };
+            Ok(json!({ "shown": shown }))
         }
         Command::Scan { db, session } => {
             let conn = open_session(&db, &session)?;

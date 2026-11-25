@@ -69,6 +69,39 @@ fn notice_true_only_once_across_sessions() {
 }
 
 #[test]
+fn notice_reset_allows_showing_again() {
+    let dir = tempdir().unwrap();
+    let db = dir.path().join("l.db");
+    assert_eq!(
+        run(&db, "s1", &["notice", "--check-and-set"])["shown"],
+        false
+    );
+    assert_eq!(run(&db, "s1", &["notice", "--reset"])["shown"], false);
+    assert_eq!(
+        run(&db, "s2", &["notice", "--check-and-set"])["shown"],
+        false
+    );
+    assert_eq!(
+        run(&db, "s2", &["notice", "--check-and-set"])["shown"],
+        true
+    );
+}
+
+#[test]
+fn notice_needs_exactly_one_action() {
+    let dir = tempdir().unwrap();
+    let db = dir.path().join("l.db");
+    for args in [vec!["notice"], vec!["notice", "--check-and-set", "--reset"]] {
+        Command::cargo_bin("lecend")
+            .unwrap()
+            .args(&args)
+            .args(["--db", db.to_str().unwrap(), "--session", "s1"])
+            .assert()
+            .failure();
+    }
+}
+
+#[test]
 fn capture_off_persists() {
     let dir = tempdir().unwrap();
     let db = dir.path().join("l.db");

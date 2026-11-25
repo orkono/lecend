@@ -8,7 +8,10 @@ export type Schedule = (run: () => void) => void
  * A FIFO with one worker: tasks run one at a time, in push order. A task that
  * throws anyway is skipped; the next one runs.
  */
-export function createQueue(): { push: (task: Task, schedule: Schedule) => void } {
+export function createQueue(): {
+  push: (task: Task, schedule: Schedule) => void
+  clear: () => void
+} {
   const tasks: Task[] = []
   let running = false
 
@@ -31,5 +34,10 @@ export function createQueue(): { push: (task: Task, schedule: Schedule) => void 
     }
   }
 
-  return { push }
+  /** Drops the tasks not started yet; a running task finishes. */
+  function clear(): void {
+    tasks.splice(0)
+  }
+
+  return { push, clear }
 }

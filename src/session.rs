@@ -128,3 +128,12 @@ pub fn check_and_set_notice(conn: &Connection) -> Result<bool> {
     tx.commit()?;
     Ok(shown)
 }
+
+/// Marks the cost notice as not shown, so the next capture shows it again.
+pub fn reset_notice(conn: &Connection) -> Result<()> {
+    conn.execute(
+        "UPDATE meta SET value = '0' WHERE key = 'cost_notice_shown'",
+        [],
+    )?;
+    Ok(())
+}

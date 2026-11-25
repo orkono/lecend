@@ -49,6 +49,10 @@ function binaryReply(world: World, sub: string, argv: readonly string[], stdin?:
       world.state.modelCalls += 1
       return JSON.stringify({ modelCalls: world.state.modelCalls })
     case 'notice': {
+      if (argv.includes('--reset')) {
+        world.events = world.events.filter(event => event !== 'notice-set')
+        return '{"shown":false}'
+      }
       const shown = world.events.includes('notice-set')
       world.events.push('notice-set')
       return JSON.stringify({ shown })
@@ -80,6 +84,7 @@ export function fakeWorld(on: On): World {
   on('command.register', () => ({ value: { command: 'lecend' } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('prompt.submit', (_, e) => ({ text: e.text }))
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
   on('turn.complete', (_, e) => ({ text: e.answer }))
   on('process.hookEnv', () => ({
     value: { CLAUDE_PLUGIN_DATA: '/data', CLAUDE_CODE_SESSION_ID: world.session },
@@ -118,9 +123,9 @@ export async function start($: Engine, fields: { isInteractive?: boolean } = { i
   await $.session.start({ cwd: '/', surface: 'terminal', ...fields } as SessionStartInput)
 }
 
-/** One main-loop turn: prompt, answer, then let the background job run. */
+/** One main-loop turn: its start with `prompt`, its answer, then the background job runs. */
 export async function turn($: Engine, clock: MockClock, turnId: string, answer: string, prompt = 'go') {
-  await $.prompt.submit({ text: prompt, wait: false, origin: { kind: 'composer' } })
+  await $.turn.start({ text: prompt, turnId })
   const done = await $.turn.complete({
     answer, durationMs: 1, isAborted: false, turnId, reason: 'answer',
   })

@@ -119,6 +119,7 @@ export function buildPrompt(input: PromptInput): string {
 export function costNoticeText(settings: CaptureSettings): string {
   return (
     `lecend captures session labels by sending each turn's text to ${settings.model} on your Claude account ` +
+    '(and count toward your quota) ' +
     `(roughly ${COST_NOTICE_TOKENS} tokens per captured turn; budget ${settings.budgetPerSession} calls per session). ` +
     '/lecend off stops it for this session; set capture=false in the plugin settings to stop it everywhere.'
   )
@@ -127,15 +128,22 @@ export function costNoticeText(settings: CaptureSettings): string {
 // Session facts from session.start; module state, so a reload turns capture
 // off until the next session.start (fail closed).
 let interactive: boolean | undefined
-let lastPrompt = ''
 let budgetToasted = false
+// The prompt of each running main-loop turn, by turnId (from turn.start).
+const prompts = new Map<string, string>()
+// Set when the cost notice could not be shown: no capture until the process restarts.
+let noticeFailed = false
 const queue = createQueue()
 
-/** Records whether a person is at the prompt; called from session.start. */
+/**
+ * Records whether a person is at the prompt and starts the session afresh:
+ * jobs still queued for an earlier session are dropped. Called from session.start.
+ */
 export function startCaptureSession(isInteractive: unknown): void {
   interactive = isInteractive === true
-  lastPrompt = ''
   budgetToasted = false
+  prompts.clear()
+  queue.clear()
 }
 
 /** Runs a binary step of a job; a failure ends the job with its reason. */
@@ -162,13 +170,28 @@ function promptInput(job: Job, scan: Record<string, unknown>): PromptInput {
   }
 }
 
+/** Resets the notice flag so a later process shows it, and stops capture in this one. */
+async function noticeNotShown($: EngineInterface, reason: string): Promise<never> {
+  noticeFailed = true
+  const reset = await runLecend($, ['notice', '--reset'])
+  const unreset = reset.ok ? '' : `; flag not reset: ${reset.error}`
+
+  throw new Error(`cost notice not shown (${reason})${unreset}; capture off until restart`)
+}
+
 /** Shows the cost notice the first time any session of this install captures. */
 async function showCostNotice($: EngineInterface, settings: CaptureSettings): Promise<void> {
   const notice = await step($, ['notice', '--check-and-set'])
   if (notice.shown !== false) return
   const text = costNoticeText(settings)
-  const appended = await $.session.append({ message: { type: 'system', content: [{ type: 'text', text }] } })
-  if (appended.deny !== undefined) throw new Error(`cost notice refused: ${appended.deny}`)
+  let denied: string | undefined
+  try {
+    const appended = await $.session.append({ message: { type: 'system', content: [{ type: 'text', text }] } })
+    denied = appended.deny
+  } catch (err) {
+    denied = (err as Error)?.message ?? String(err)
+  }
+  if (denied !== undefined) await noticeNotShown($, denied)
 }
 
 /** Counts the call, then asks the model; usage is bumped also when the call fails. */
@@ -189,6 +212,7 @@ async function askModel($: EngineInterface, settings: CaptureSettings, input: Pr
 
 /** One turn's capture (spec §5.2): state, scan, budget, notice, model, apply, pane. */
 async function runJob($: EngineInterface, settings: CaptureSettings, job: Job): Promise<void> {
+  if (noticeFailed) return
   const state = await step($, ['state'])
   if (typeof state.captureOff !== 'boolean' || typeof state.modelCalls !== 'number') {
     throw new Error('state: printed an unexpected shape')
@@ -213,12 +237,12 @@ async function runJob($: EngineInterface, settings: CaptureSettings, job: Job): 
 }
 
 async function captureEnabled($: EngineInterface, settings: CaptureSettings): Promise<boolean> {
-  return settings.capture && interactive === true && (await hasBinary($))
+  return !noticeFailed && settings.capture && interactive === true && (await hasBinary($))
 }
 
 /** Records a main-loop answer's turn and queues its capture job, never awaiting the job. */
-async function onTurn($: EngineInterface, settings: CaptureSettings, turnId: string, answer: string) {
-  const job: Job = { turnId, prompt: lastPrompt, answer }
+async function onTurn($: EngineInterface, settings: CaptureSettings, job: Job) {
+  const { turnId } = job
   const recorded = await runLecend($, ['turn'], { turnId }, TURN_TIMEOUT_MS)
   if (!recorded.ok) {
     $.ui.log(`lecend: turn ${turnId} not recorded: ${recorded.error}`, { to: 'debug' })
@@ -232,17 +256,22 @@ async function onTurn($: EngineInterface, settings: CaptureSettings, turnId: str
   queue.push(task, run => void $.clock.after(0, run))
 }
 
-/** The capture hooks: the last prompt, and a job per main-loop answer. */
+/** The capture hooks: each main-loop turn's prompt, and a job per main-loop answer. */
 export function registerCapture(on: On, settings: CaptureSettings): void {
-  on('prompt.submit', (_, e, next) => {
-    if (!e.text.trimStart().startsWith('/lecend')) lastPrompt = e.text
+  on('turn.start', (_, e, next) => {
+    if (e.agentId === undefined && !e.text.trimStart().startsWith('/lecend')) {
+      prompts.set(e.turnId, e.text)
+    }
     return next(e)
   })
 
   on('turn.complete', async ($, e, next) => {
+    if (e.agentId !== undefined) return next(e)
+    const prompt = prompts.get(e.turnId) ?? ''
+    prompts.delete(e.turnId)
     try {
-      if (e.agentId === undefined && e.reason === 'answer' && (await captureEnabled($, settings))) {
-        await onTurn($, settings, e.turnId, e.answer)
+      if (e.reason === 'answer' && (await captureEnabled($, settings))) {
+        await onTurn($, settings, { turnId: e.turnId, prompt, answer: e.answer })
       }
     } catch (err) {
       $.ui.log(`lecend: turn ${e.turnId} not queued: ${(err as Error)?.message ?? err}`, { to: 'debug' })
