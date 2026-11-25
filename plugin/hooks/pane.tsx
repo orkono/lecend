@@ -39,11 +39,11 @@ export async function refreshPane($: EngineInterface): Promise<LecendResult> {
   return listed
 }
 
-/** Opens the pane; whether it is drawn now. Rejects when the engine refuses it. */
-export async function openPane($: EngineInterface): Promise<boolean> {
+/** Opens the pane: drawn now, or the engine's reason it waits. Rejects when the engine refuses it. */
+export async function openPane($: EngineInterface): Promise<{ isPlaced: true } | { isPlaced: false; reason: string }> {
   const opened = await $.ui.open({ id: PANE_ID, title: PANE_TITLE })
 
-  return opened.isPlaced
+  return opened.isPlaced ? { isPlaced: true } : { isPlaced: false, reason: opened.reason }
 }
 
 /** Draws the pane: bold label, definition, dimmed status and previous definition. */

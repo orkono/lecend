@@ -241,13 +241,13 @@ test('pane renders entries', async ($, on) => {
   }
 })
 
-test('pane on a narrow window says when it will open', async ($, on) => {
-  on('ui.open', () => ({ value: { isPlaced: false, reason: 'below 110 columns (80 now)' } }))
+test('pane not drawn yet says the engine\'s reason', async ($, on) => {
+  on('ui.open', () => ({ value: { isPlaced: false, reason: 'no attached surface places panes' } }))
   fakeBinary(on, { ...BASE, list: { stdout: JSON.stringify(ENTRIES) } })
 
   const answer = await lecend($, 'pane')
 
-  expect(answer.text).toBe('lecend pane will open when the window is at least 110 columns wide.')
+  expect(answer.text).toBe('lecend pane is open but not drawn yet: no attached surface places panes')
   expect(answer.isTextDisplayOnly).toBe(true)
 })
 
@@ -258,5 +258,6 @@ test('pane refused by the engine answers its reason', async ($, on) => {
   const answer = await lecend($, 'pane')
 
   expect(answer.text).toMatch(/^lecend: .*pane held by another plugin$/)
+  expect(answer.text).not.toMatch(/^lecend: lecend:/)
   expect(answer.isTextDisplayOnly).toBe(true)
 })
