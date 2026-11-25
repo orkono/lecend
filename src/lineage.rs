@@ -72,7 +72,7 @@ pub fn run(transcript: &Path) -> Value {
             continue;
         }
         let shared = mine.iter().filter(|u| theirs.contains(*u)).count();
-        if best.as_ref().map_or(true, |(_, n)| shared > *n) {
+        if best.as_ref().is_none_or(|(_, n)| shared > *n) {
             best = Some((stem.to_string(), shared));
         }
     }

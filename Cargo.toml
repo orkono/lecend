@@ -2,9 +2,14 @@
 name = "lecend"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.80"
 license = "Apache-2.0"
-description = "Glossary storage for Claude Code sessions"
+exclude = [".superpowers/", "docs/superpowers/", "plugin/", ".github/"]
+description = "Captures the short labels of a long Claude Code session (W6, OLD, NEW) into a local glossary you can look up without the model"
+repository = "https://github.com/orkono/lecend"
+homepage = "https://github.com/orkono/lecend"
+readme = "README.md"
+keywords = ["claude-code", "glossary", "cli"]
+categories = ["command-line-utilities"]
 
 [dependencies]
 anyhow = "1"
