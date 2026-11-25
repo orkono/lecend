@@ -19,12 +19,16 @@ is never added to the model's context. Claude Code only.
 
 ## Cost: read this first
 
-Capture is not free. After each completed turn of the main conversation, lecend sends that turn's
-final answer (plus the label names it already knows) to a capture model through your own Claude
-account.
+Capture is not free. After each completed turn of the main conversation that contains a label (or a
+label-shaped word), lecend sends that turn's text to a capture model through your own Claude account:
+your prompt and the assistant's answer (truncated to the first 8 000 and last 4 000 characters), the
+names of the labels it already knows, and up to 12 of the current entries.
 
-- Typical cost: about 800 input tokens per captured turn. A long turn can reach 3 000 tokens or more.
+- Typical cost: about 800 tokens per captured turn, input and output together. A long turn can reach
+  3 500 tokens or more.
 - Calls count toward your `/cost` and your plan quota. The default model is `haiku`.
+- Turns started by a notification rather than by you (a background task finishing, a schedule) are
+  sent without their prompt, and only when the answer mentions a label lecend already knows.
 - At most 200 calls per session (`budgetPerSession`); capture stops when the budget is reached.
 - Before the first capture call, lecend shows a one-time display-only notice with these facts.
 
@@ -78,8 +82,10 @@ Labels are matched case-insensitively. Each session has its own glossary.
 
 - The glossary is one local SQLite file, `lecend.db`, in the plugin's data folder. Nothing is
   uploaded and lecend makes no network calls of its own.
-- The only text that leaves your machine is each captured turn's final answer, sent to the capture
-  model on your own Claude account (the same account and terms as the session itself).
+- The only text that leaves your machine is what each captured turn sends to the capture model: your
+  prompt and the assistant's answer (truncated to the first 8 000 and last 4 000 characters), the
+  known label names, and up to 12 current entries. It goes only to your own Claude account (the same
+  account and terms as the session itself).
 - Capture runs only in the interactive main conversation, never for subagents.
 
 ## Known limits
@@ -95,7 +101,7 @@ Labels are matched case-insensitively. Each session has its own glossary.
 ## Development
 
 ```bash
-cargo fmt --check && cargo clippy -- -D warnings && cargo test
+cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 claude plugin validate plugin --profile directory
 claude plugin test plugin
 ```
