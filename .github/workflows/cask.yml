@@ -1,0 +1,43 @@
+name: cask
+# Writes Casks/lecend.rb in orkono/homebrew-tap for a published release. Called by the release
+# workflow; run it by hand (Actions → cask → Run workflow) to redo a release's cask.
+on:
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag, e.g. v0.1.1
+        required: true
+permissions:
+  contents: read
+jobs:
+  cask:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag }}
+      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+    steps:
+      - name: Skip without a tap token
+        if: env.HOMEBREW_TAP_TOKEN == ''
+        run: echo "::warning::HOMEBREW_TAP_TOKEN is not set; the cask was not updated"
+      - uses: actions/checkout@v4
+        if: env.HOMEBREW_TAP_TOKEN != ''
+      - name: Write and push the cask
+        if: env.HOMEBREW_TAP_TOKEN != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern SHA256SUMS --dir dist
+          git clone --depth 1 "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/orkono/homebrew-tap.git" tap
+          scripts/cask.sh "${TAG#v}" dist/SHA256SUMS > tap/Casks/lecend.rb
+          cd tap
+          git config user.name "lecend release"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/lecend.rb
+          if git diff --cached --quiet; then echo "cask already up to date"; exit 0; fi
+          git commit -m "Brew cask update for lecend version $TAG"
+          git push origin HEAD
