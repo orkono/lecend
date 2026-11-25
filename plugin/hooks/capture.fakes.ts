@@ -21,6 +21,8 @@ type Reply = (prompt: string) => ModelCompleteResult | Promise<ModelCompleteResu
 
 /** A fake `lecend` binary, model, log and toast sink; `events` keeps their order. */
 export type World = {
+  /** Starts the turn the next idle prompt.submit starts, as the engine would. */
+  startsTurn?: () => Promise<unknown>
   runs: Run[]
   events: string[]
   prompts: string[]
@@ -122,7 +124,13 @@ export function fakeWorld(on: On): World {
   }
   on('command.register', () => ({ value: { command: 'lecend' } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
-  on('prompt.submit', (_, e) => ({ text: e.text }))
+  // As the engine does, a prompt that starts a turn resolves after that turn started.
+  on('prompt.submit', async (_, e) => {
+    const startTurn = world.startsTurn
+    world.startsTurn = undefined
+    if (startTurn !== undefined) await startTurn()
+    return { text: e.text }
+  })
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
   on('turn.complete', (_, e) => ({ text: e.answer }))
   on('session.info', () => ({ value: { transcriptPath: world.transcript } as SessionInfo }))
@@ -172,11 +180,16 @@ export async function start($: Engine, fields: { isInteractive?: boolean } = { i
  * its start and answer, then the background job runs.
  */
 export async function notifiedTurn(
-  $: Engine, clock: MockClock, turnId: string, answer: string, kind: 'task-notification' | 'sdk' = 'task-notification',
+  $: Engine,
+  clock: MockClock,
+  world: World,
+  turnId: string,
+  answer: string,
+  kind: 'task-notification' | 'sdk' = 'task-notification',
 ) {
   const text = '<task-notification>HEAD 1992ad0 W9</task-notification>'
+  world.startsTurn = () => $.turn.start({ text, turnId })
   await $.prompt.submit({ text, wait: false, origin: { kind } })
-  await $.turn.start({ text, turnId })
   await $.turn.complete({ answer, durationMs: 1, isAborted: false, turnId, reason: 'answer' })
   await clock.settle()
 }

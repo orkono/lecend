@@ -156,8 +156,8 @@ let interactive: boolean | undefined
 let budgetToasted = false
 // The prompt of each running main-loop turn, by turnId (from turn.start).
 const prompts = new Map<string, TurnPrompt>()
-// The origin kind of the last prompt submitted while the session was idle,
-// taken by the main-loop turn.start that follows it.
+// The origin kind of the prompt being submitted while the session is idle,
+// taken by the main-loop turn.start it starts; cleared when the submit resolves.
 let pendingOrigin: string | undefined
 // Set when the cost notice could not be shown: no capture until the process restarts.
 let noticeFailed = false
@@ -350,8 +350,11 @@ export function registerCapture(on: On, settings: CaptureSettings): void {
     // delivered during a turn is not that turn's prompt.
     if (e.turnId !== undefined) return next(e)
     pendingOrigin = e.origin.kind
+    // next(e) resolves once the prompt's turn started, so turn.start has taken
+    // the origin by now; a prompt that started no turn (a local slash command)
+    // must not leave it for a later turn.
     const result = await next(e)
-    if (result.drop !== undefined) pendingOrigin = undefined
+    pendingOrigin = undefined
     return result
   }).catch((_, e, next) => {
     // Only observes the prompt: a failure here never holds it back.

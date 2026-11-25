@@ -134,7 +134,12 @@ async function captureAnswer($: EngineInterface, kind: 'off' | 'on'): Promise<st
   return ran.ok ? `lecend capture is ${kind} for this session.` : textOf(ran)
 }
 
-const PANE_WAITS = 'lecend pane will open when the window is at least 110 columns wide.'
+/** `lecend: <message>`, without doubling a prefix the engine already put on it. */
+function errorText(err: unknown): string {
+  const message = String((err as Error)?.message ?? err)
+
+  return message.startsWith('lecend: ') ? message : `lecend: ${message}`
+}
 
 async function paneAnswer($: EngineInterface): Promise<string> {
   const refreshed = await refreshPane($)
@@ -142,10 +147,10 @@ async function paneAnswer($: EngineInterface): Promise<string> {
     return textOf(refreshed)
   }
   try {
-    const placed = await openPane($)
-    return placed ? 'lecend pane opened.' : PANE_WAITS
+    const opened = await openPane($)
+    return opened.isPlaced ? 'lecend pane opened.' : `lecend pane is open but not drawn yet: ${opened.reason}`
   } catch (err) {
-    return `lecend: ${(err as Error)?.message ?? err}`
+    return errorText(err)
   }
 }
 

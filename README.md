@@ -46,7 +46,7 @@ model with the `model` setting.
 2. Install the `lecend` binary and make sure it is on the `PATH` Claude Code sees. Pick one:
    ```bash
    brew install --cask orkono/tap/lecend     # macOS and Linux
-   cargo install lecend                      # any platform with Rust
+   cargo install lecend                      # any platform with Rust 1.85+
    ```
    or download an archive for your platform from the
    [releases page](https://github.com/orkono/lecend/releases), verify it against the published
