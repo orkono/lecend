@@ -1,5 +1,5 @@
 /** Test doubles for capture.test.ts: a fake `lecend` binary, model, log and toast. */
-import type { ModelCompleteResult, On, SessionStartInput } from 'claude-code'
+import type { ModelCompleteResult, On, SessionInfo, SessionStartInput } from 'claude-code'
 import type { Engine, MockClock } from 'claude-code/testing'
 
 export const USAGE = {
@@ -29,6 +29,16 @@ export type World = {
   toasts: string[]
   session: string
   state: { captureOff: boolean; modelCalls: number }
+  /** Turns the fake binary has recorded for the current session. */
+  turns: number
+  /** `session.info().transcriptPath`; empty skips the lineage check. */
+  transcript: string
+  /** What `lecend lineage` answers; `'hang'` makes the call time out. */
+  lineage: { parent: string | null; sharedUserTurns: number } | 'hang'
+  /** Label count `lecend state` reports for any session but the current one. */
+  parentLabels: number
+  /** Makes `lecend fork` fail with this error. */
+  forkError?: string
   missing: boolean
   reply: Reply
 }
@@ -40,9 +50,22 @@ function binaryReply(world: World, sub: string, argv: readonly string[], stdin?:
     case 'version':
       return '{"version":"0.1.0"}'
     case 'turn':
-      return '{"turnIndex":1}'
-    case 'state':
-      return JSON.stringify({ ...world.state, forkedFrom: null, forkTurn: null, forkDone: false })
+      world.turns += 1
+      return JSON.stringify({ turnIndex: world.turns })
+    case 'state': {
+      const own = argv[argv.indexOf('--session') + 1] === world.session
+      const labels = own ? 0 : world.parentLabels
+      const turns = own ? world.turns : 5
+      const forkDone = own && world.events.some(event => event.startsWith('fork:'))
+
+      return JSON.stringify({ ...world.state, turns, labels, forkedFrom: null, forkTurn: null, forkDone })
+    }
+    case 'lineage':
+      return JSON.stringify(world.lineage)
+    case 'fork':
+      if (world.forkError !== undefined) return JSON.stringify({ error: world.forkError })
+      world.events.push(`fork:${argv[argv.indexOf('--from') + 1]}@${argv[argv.indexOf('--at-turn') + 1]}`)
+      return '{"copied":3,"already":false}'
     case 'scan':
       return JSON.stringify(SCAN)
     case 'usage':
@@ -78,6 +101,10 @@ export function fakeWorld(on: On): World {
     toasts: [],
     session: 'sess-1',
     state: { captureOff: false, modelCalls: 0 },
+    turns: 0,
+    transcript: '',
+    lineage: { parent: null, sharedUserTurns: 0 },
+    parentLabels: 0,
     missing: false,
     reply: () => answered(JSON.stringify(GOOD_DIFF)),
   }
@@ -86,6 +113,7 @@ export function fakeWorld(on: On): World {
   on('prompt.submit', (_, e) => ({ text: e.text }))
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
   on('turn.complete', (_, e) => ({ text: e.answer }))
+  on('session.info', () => ({ value: { transcriptPath: world.transcript } as SessionInfo }))
   on('process.hookEnv', () => ({
     value: { CLAUDE_PLUGIN_DATA: '/data', CLAUDE_CODE_SESSION_ID: world.session },
   }))
@@ -93,9 +121,11 @@ export function fakeWorld(on: On): World {
     const sub = e.argv[1] ?? ''
     world.runs.push({ sub, argv: e.argv, stdin: e.init?.stdin, timeoutMs: e.init?.timeoutMs })
     world.events.push(`bin:${sub}`)
+    if (sub === 'lineage' && world.lineage === 'hang') return { deny: 'process timed out' }
     const missing = world.missing && sub === 'version'
     const stdout = missing ? '' : binaryReply(world, sub, e.argv, e.init?.stdin)
-    const value = { exitCode: missing ? 127 : 0, stdout, stderr: '' }
+    const failed = stdout.startsWith('{"error"')
+    const value = { exitCode: missing ? 127 : failed ? 1 : 0, stdout, stderr: '' }
 
     return { value: { ...value, isStdoutTruncated: false, isStderrTruncated: false } }
   })

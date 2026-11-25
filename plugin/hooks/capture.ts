@@ -1,6 +1,7 @@
 import type { EngineInterface, On, PluginOptions } from 'claude-code'
 
 import { hasBinary, runLecend } from './bin'
+import { carryGlossary } from './lineage'
 import { refreshPane } from './pane'
 import { createQueue } from './queue'
 import { parseReply } from './reply'
@@ -243,6 +244,7 @@ async function captureEnabled($: EngineInterface, settings: CaptureSettings): Pr
 /** Records a main-loop answer's turn and queues its capture job, never awaiting the job. */
 async function onTurn($: EngineInterface, settings: CaptureSettings, job: Job) {
   const { turnId } = job
+  await carryGlossary($)
   const recorded = await runLecend($, ['turn'], { turnId }, TURN_TIMEOUT_MS)
   if (!recorded.ok) {
     $.ui.log(`lecend: turn ${turnId} not recorded: ${recorded.error}`, { to: 'debug' })

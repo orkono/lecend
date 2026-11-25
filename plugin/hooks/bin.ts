@@ -28,15 +28,21 @@ export async function hasBinary($: EngineInterface): Promise<boolean> {
   return binaryFound ?? (await checkBinary($))
 }
 
-async function sessionArgs($: EngineInterface): Promise<string[]> {
+/** The current session's id: the environment's, else the engine's. */
+export async function currentSessionId($: EngineInterface): Promise<string> {
+  const env = await $.process.hookEnv()
+
+  return env.CLAUDE_CODE_SESSION_ID || (await $.session.id())
+}
+
+async function sessionArgs($: EngineInterface, session?: string): Promise<string[]> {
   const env = await $.process.hookEnv()
   const data = env.CLAUDE_PLUGIN_DATA
   if (data === undefined || data === '') {
     throw new Error('CLAUDE_PLUGIN_DATA is not set')
   }
-  const session = env.CLAUDE_CODE_SESSION_ID || (await $.session.id())
 
-  return ['--db', `${data}/lecend.db`, '--session', session]
+  return ['--db', `${data}/lecend.db`, '--session', session ?? (await currentSessionId($))]
 }
 
 function parseJson(text: string): unknown {
@@ -60,12 +66,14 @@ function errorOf(stdout: string, stderr: string, exitCode: number): string {
 /**
  * Runs `lecend <sub> --db … --session … [rest…]`, where `args` is
  * `[sub, ...rest]`. `missing` is true when the process could not start.
+ * `options.session` runs it against another session than the current one.
  */
 export async function runLecend(
   $: EngineInterface,
   args: string[],
   stdin?: unknown,
   timeoutMs = 5000,
+  options: { session?: string } = {},
 ): Promise<LecendResult> {
   const [sub, ...rest] = args
   if (sub === undefined) {
@@ -73,7 +81,7 @@ export async function runLecend(
   }
   let argv: string[]
   try {
-    argv = ['lecend', sub, ...(await sessionArgs($)), ...rest]
+    argv = ['lecend', sub, ...(await sessionArgs($, options.session)), ...rest]
   } catch (err) {
     return { ok: false, error: String((err as Error).message), missing: false }
   }
