@@ -4,16 +4,6 @@ use serde_json::{json, Value};
 
 use crate::session;
 
-/// Marks the session as having no detectable parent.
-pub fn none(conn: &Connection, sid: &str) -> Result<Value> {
-    conn.execute(
-        "UPDATE sessions SET fork_done = 1, forked_from = NULL, fork_turn = -1
-         WHERE session_id = ?1",
-        [sid],
-    )?;
-    Ok(json!({ "ok": true }))
-}
-
 fn fork_done(conn: &Connection, sid: &str) -> Result<bool> {
     Ok(conn.query_row(
         "SELECT fork_done FROM sessions WHERE session_id = ?1",
@@ -25,7 +15,8 @@ fn fork_done(conn: &Connection, sid: &str) -> Result<bool> {
 fn has_own_data(conn: &Connection, sid: &str) -> Result<bool> {
     Ok(conn.query_row(
         "SELECT (SELECT count(*) FROM terms WHERE session_id = ?1)
-              + (SELECT count(*) FROM turns WHERE session_id = ?1)",
+              + (SELECT count(*) FROM turns WHERE session_id = ?1)
+              + (SELECT count(*) FROM ignores WHERE session_id = ?1)",
         [sid],
         |r| r.get::<_, i64>(0),
     )? > 0)
@@ -102,6 +93,14 @@ pub fn from(conn: &Connection, child: &str, parent: &str, at_turn: Option<i64>) 
     if has_own_data(&tx, child)? {
         bail!("session already has a glossary");
     }
+    let parent_defs: i64 = tx.query_row(
+        "SELECT count(*) FROM definitions WHERE session_id = ?1",
+        [parent],
+        |r| r.get(0),
+    )?;
+    if parent_defs == 0 {
+        bail!("parent has no glossary");
+    }
     let copied = copy_rows(&tx, parent, child, at_turn)?;
     let base = match at_turn {
         Some(n) => n,
@@ -114,4 +113,22 @@ pub fn from(conn: &Connection, child: &str, parent: &str, at_turn: Option<i64>) 
     )?;
     tx.commit()?;
     Ok(json!({ "copied": copied, "already": false }))
+}
+
+/// Marks the session as having no detectable parent (once).
+pub fn none(conn: &Connection, sid: &str) -> Result<Value> {
+    let tx = session::immediate(conn)?;
+    if fork_done(&tx, sid)? {
+        return Ok(json!({ "ok": true, "already": true }));
+    }
+    if has_own_data(&tx, sid)? {
+        bail!("session already has a glossary");
+    }
+    tx.execute(
+        "UPDATE sessions SET fork_done = 1, forked_from = NULL, fork_turn = -1
+         WHERE session_id = ?1",
+        [sid],
+    )?;
+    tx.commit()?;
+    Ok(json!({ "ok": true }))
 }

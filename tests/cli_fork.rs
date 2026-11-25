@@ -208,7 +208,7 @@ fn fork_none_marks_unknown_parent() {
 }
 
 fn user_line(uuid: &str) -> String {
-    json!({"type":"user","uuid":uuid,"sessionId":"x"}).to_string()
+    json!({"type":"user","uuid":uuid,"sessionId":"x","message":{"content":"hi"}}).to_string()
 }
 
 fn lineage(path: &Path) -> Value {
@@ -265,5 +265,130 @@ fn lineage_missing_file_is_null() {
     assert_eq!(
         lineage(&dir.path().join("nope.jsonl")),
         json!({"parent": null, "sharedUserTurns": 0})
+    );
+}
+
+fn prompt_line(uuid: &str) -> String {
+    json!({"type":"user","uuid":uuid,"message":{"role":"user","content":"hello"}}).to_string()
+}
+
+fn tool_result_line(uuid: &str) -> String {
+    json!({"type":"user","uuid":uuid,
+           "message":{"role":"user","content":[{"type":"tool_result","content":"x"}]}})
+    .to_string()
+}
+
+#[test]
+fn lineage_ignores_tool_result_user_lines() {
+    let dir = tempdir().unwrap();
+    let parent = [
+        tool_result_line("tr0"),
+        prompt_line("u1"),
+        tool_result_line("tr1"),
+        json!({"type":"user","uuid":"meta","isMeta":true,"message":{"content":"m"}}).to_string(),
+        json!({"type":"user","uuid":"blk","message":{"content":[{"type":"text","text":"hi"}]}})
+            .to_string(),
+    ];
+    fs::write(dir.path().join("par.jsonl"), parent.join("\n")).unwrap();
+    let child = [
+        tool_result_line("tr0"),
+        prompt_line("u1"),
+        tool_result_line("tr1"),
+        json!({"type":"user","uuid":"meta","isMeta":true,"message":{"content":"m"}}).to_string(),
+        json!({"type":"user","uuid":"blk","message":{"content":[{"type":"text","text":"hi"}]}})
+            .to_string(),
+    ];
+    let path = dir.path().join("kid.jsonl");
+    fs::write(&path, child.join("\n")).unwrap();
+    assert_eq!(
+        lineage(&path),
+        json!({"parent": "par", "sharedUserTurns": 2})
+    );
+    // A transcript whose only user lines are tool results has no first prompt.
+    let only = dir.path().join("only.jsonl");
+    fs::write(&only, tool_result_line("tr0")).unwrap();
+    assert_eq!(
+        lineage(&only),
+        json!({"parent": null, "sharedUserTurns": 0})
+    );
+}
+
+#[test]
+fn lineage_prefers_candidate_with_most_shared_prompts() {
+    let dir = tempdir().unwrap();
+    // "a-sibling" sorts first but shares only the first prompt.
+    fs::write(dir.path().join("a-sibling.jsonl"), prompt_line("u1")).unwrap();
+    let real = [prompt_line("u1"), prompt_line("u2"), prompt_line("u3")];
+    fs::write(dir.path().join("z-real.jsonl"), real.join("\n")).unwrap();
+    let child = [prompt_line("u1"), prompt_line("u2"), prompt_line("u3")];
+    let path = dir.path().join("m-kid.jsonl");
+    fs::write(&path, child.join("\n")).unwrap();
+    assert_eq!(
+        lineage(&path),
+        json!({"parent": "z-real", "sharedUserTurns": 3})
+    );
+    // Ties go to name order.
+    fs::write(dir.path().join("b-tie.jsonl"), real.join("\n")).unwrap();
+    assert_eq!(
+        lineage(&path),
+        json!({"parent": "b-tie", "sharedUserTurns": 3})
+    );
+}
+
+#[test]
+fn lineage_skips_unreadable_sibling() {
+    let dir = tempdir().unwrap();
+    fs::create_dir(dir.path().join("a-broken.jsonl")).unwrap();
+    fs::write(dir.path().join("b-par.jsonl"), prompt_line("u1")).unwrap();
+    let path = dir.path().join("kid.jsonl");
+    fs::write(&path, prompt_line("u1")).unwrap();
+    assert_eq!(
+        lineage(&path),
+        json!({"parent": "b-par", "sharedUserTurns": 1})
+    );
+}
+
+#[test]
+fn fork_from_empty_parent_rejected() {
+    let (_d, db) = fresh();
+    ok(&db, "p", &["state"]);
+    assert_eq!(
+        err(&db, "c", &["fork", "--from", "p"]),
+        "parent has no glossary"
+    );
+    assert_eq!(ok(&db, "c", &["state"])["forkDone"], false);
+}
+
+#[test]
+fn fork_none_after_fork_is_noop() {
+    let (_d, db) = fresh();
+    seed_parent(&db);
+    ok(&db, "c", &["fork", "--from", "p"]);
+    assert_eq!(
+        ok(&db, "c", &["fork", "--none"]),
+        json!({"ok": true, "already": true})
+    );
+    let s = ok(&db, "c", &["state"]);
+    assert_eq!(s["forkedFrom"], "p");
+    assert_eq!(s["forkTurn"], 3);
+    turn(&db, "d", "d-1");
+    assert_eq!(
+        err(&db, "d", &["fork", "--none"]),
+        "session already has a glossary"
+    );
+}
+
+#[test]
+fn child_with_only_ignores_refused() {
+    let (_d, db) = fresh();
+    seed_parent(&db);
+    ok(&db, "c", &["edit", "--definition", "x", "Tmp"]);
+    ok(&db, "c", &["forget", "Tmp"]);
+    // Remove the term row so only the ignore remains.
+    assert_eq!(child_count(&db, "terms"), 0);
+    assert_eq!(child_count(&db, "ignores"), 1);
+    assert_eq!(
+        err(&db, "c", &["fork", "--from", "p"]),
+        "session already has a glossary"
     );
 }

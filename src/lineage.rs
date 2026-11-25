@@ -4,16 +4,34 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
 
-/// The `uuid`s of a transcript's `type:"user"` lines, in file order.
-/// Unreadable files and lines that are not JSON yield nothing.
-fn user_uuids(path: &Path) -> Vec<String> {
+/// True for a line that is a real user prompt: `type:"user"`, not meta, and
+/// not a tool result (tool results are `user` lines too in Claude Code).
+fn is_prompt(v: &Value) -> bool {
+    if v.get("type").and_then(Value::as_str) != Some("user")
+        || v.get("isMeta").and_then(Value::as_bool) == Some(true)
+    {
+        return false;
+    }
+    match v.pointer("/message/content") {
+        Some(Value::String(_)) => true,
+        Some(Value::Array(blocks)) => !blocks
+            .iter()
+            .any(|b| b.get("type").and_then(Value::as_str) == Some("tool_result")),
+        _ => false,
+    }
+}
+
+/// The `uuid`s of a transcript's real prompts, in file order. Unreadable
+/// files and lines that are not JSON yield nothing.
+fn prompt_uuids(path: &Path) -> Vec<String> {
     let Ok(bytes) = fs::read(path) else {
         return Vec::new();
     };
     String::from_utf8_lossy(&bytes)
         .lines()
+        .filter(|line| line.contains("\"user\""))
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .filter(|v| v.get("type").and_then(Value::as_str) == Some("user"))
+        .filter(is_prompt)
         .filter_map(|v| v.get("uuid").and_then(Value::as_str).map(str::to_string))
         .collect()
 }
@@ -36,24 +54,30 @@ fn siblings(transcript: &Path) -> Vec<PathBuf> {
     files
 }
 
-/// Finds the transcript that shares this one's first user uuid (its fork
-/// parent). Returns `{"parent": <session id>|null, "sharedUserTurns": N}`.
+/// Finds the transcript that shares this one's first prompt uuid and the
+/// most prompts overall (its fork parent; ties go to the first by name).
+/// Returns `{"parent": <session id>|null, "sharedUserTurns": N}`.
 pub fn run(transcript: &Path) -> Value {
-    let none = json!({ "parent": null, "sharedUserTurns": 0 });
-    let mine = user_uuids(transcript);
+    let mine = prompt_uuids(transcript);
     let Some(first) = mine.first() else {
-        return none;
+        return json!({ "parent": null, "sharedUserTurns": 0 });
     };
+    let mut best: Option<(String, usize)> = None;
     for sibling in siblings(transcript) {
-        let theirs: HashSet<String> = user_uuids(&sibling).into_iter().collect();
-        if !theirs.contains(first) {
-            continue;
-        }
+        let theirs: HashSet<String> = prompt_uuids(&sibling).into_iter().collect();
         let Some(stem) = sibling.file_stem().and_then(|s| s.to_str()) else {
             continue;
         };
+        if !theirs.contains(first) {
+            continue;
+        }
         let shared = mine.iter().filter(|u| theirs.contains(*u)).count();
-        return json!({ "parent": stem, "sharedUserTurns": shared });
+        if best.as_ref().map_or(true, |(_, n)| shared > *n) {
+            best = Some((stem.to_string(), shared));
+        }
     }
-    none
+    match best {
+        Some((parent, n)) => json!({ "parent": parent, "sharedUserTurns": n }),
+        None => json!({ "parent": null, "sharedUserTurns": 0 }),
+    }
 }
