@@ -1,11 +1,13 @@
 import type { Register } from 'claude-code'
 
 import { checkBinary } from './bin'
+import { readSettings, registerCapture, startCaptureSession } from './capture'
 import { answer, parseArgs } from './commands'
 import { refreshPane, registerPane } from './pane'
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
+    startCaptureSession(e.isInteractive)
     await $.command.register({
       name: 'lecend',
       description: 'Look up the labels of this session (/lecend W6), list them, or open the pane',
@@ -27,4 +29,5 @@ export const register: Register = on => {
   })
 
   registerPane(on)
+  registerCapture(on, readSettings(options))
 }
