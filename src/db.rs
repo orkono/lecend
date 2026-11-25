@@ -1,7 +1,8 @@
 use std::path::Path;
+use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
-use rusqlite::Connection;
+use rusqlite::{Connection, ErrorCode};
 
 pub const SCHEMA_VERSION: i64 = 1;
 
@@ -83,10 +84,35 @@ pub fn open(path: &Path) -> Result<Connection> {
     restrict_permissions(path)?;
     let conn = Connection::open(path)
         .with_context(|| format!("cannot open database {}", path.display()))?;
-    conn.busy_timeout(std::time::Duration::from_millis(5000))?;
-    conn.pragma_update(None, "journal_mode", "WAL")?;
+    conn.busy_timeout(BUSY_TIMEOUT)?;
+    enable_wal(&conn)?;
     migrate(&conn)?;
     Ok(conn)
+}
+
+const BUSY_TIMEOUT: Duration = Duration::from_millis(5000);
+const WAL_RETRY_PAUSE: Duration = Duration::from_millis(10);
+
+/// Switches to WAL. Parallel first-openers can get SQLITE_BUSY from the switch
+/// without the busy handler being consulted, so it is retried up to `BUSY_TIMEOUT`.
+fn enable_wal(conn: &Connection) -> Result<()> {
+    let started = Instant::now();
+    loop {
+        match conn.pragma_update(None, "journal_mode", "WAL") {
+            Ok(()) => return Ok(()),
+            Err(e) if is_busy(&e) && started.elapsed() < BUSY_TIMEOUT => {
+                std::thread::sleep(WAL_RETRY_PAUSE)
+            }
+            Err(e) => return Err(e).context("cannot switch database to WAL mode"),
+        }
+    }
+}
+
+fn is_busy(e: &rusqlite::Error) -> bool {
+    matches!(
+        e.sqlite_error_code(),
+        Some(ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked)
+    )
 }
 
 #[cfg(unix)]

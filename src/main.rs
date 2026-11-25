@@ -1,3 +1,4 @@
+mod apply;
 mod db;
 mod labels;
 mod scan;
@@ -72,6 +73,13 @@ enum Command {
         #[arg(long)]
         session: String,
     },
+    /// Validate and store a model diff (stdin `{turnId, prompt, answer, stoplist, diff}`).
+    Apply {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long)]
+        session: String,
+    },
     /// Switch capture off or on for the session.
     Capture {
         #[arg(long)]
@@ -141,6 +149,10 @@ fn run(cli: Cli) -> Result<Value> {
         Command::Scan { db, session } => {
             let conn = open_session(&db, &session)?;
             scan::run(&conn, &session, &read_stdin()?)
+        }
+        Command::Apply { db, session } => {
+            let mut conn = open_session(&db, &session)?;
+            apply::run(&mut conn, &session, &read_stdin()?)
         }
         Command::Capture {
             db, session, off, ..
