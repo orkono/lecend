@@ -11,12 +11,12 @@ use serde_json::{json, Value};
 use crate::labels::{self, Stoplist};
 use crate::session;
 
-const MAX_LABEL: usize = 32;
-const MAX_DEFINITION: usize = 200;
-const MAX_STATUS: usize = 200;
+pub(crate) const MAX_LABEL: usize = 32;
+pub(crate) const MAX_DEFINITION: usize = 200;
+pub(crate) const MAX_STATUS: usize = 200;
 const MAX_QUOTE: usize = 300;
 const MIN_MEANING_WORD: usize = 4;
-const NOW: &str = "strftime('%Y-%m-%dT%H:%M:%SZ','now')";
+pub(crate) const NOW: &str = "strftime('%Y-%m-%dT%H:%M:%SZ','now')";
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -161,7 +161,7 @@ fn keep_last_duplicates(ops: Vec<Op>) -> Vec<Op> {
 }
 
 /// Collapses every run of whitespace to one space and trims the ends.
-fn collapse_ws(s: &str) -> String {
+pub(crate) fn collapse_ws(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 

@@ -1,5 +1,6 @@
 mod apply;
 mod db;
+mod edit;
 mod entry;
 mod labels;
 mod query;
@@ -120,6 +121,59 @@ enum Command {
         #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
         label: Vec<String>,
     },
+    /// Correct a label: --definition, --status, --pin or --unpin (one per call).
+    #[command(group(clap::ArgGroup::new("action").required(true).multiple(false)
+        .args(["definition", "status", "pin", "unpin"])))]
+    Edit {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long)]
+        session: String,
+        #[arg(long, allow_hyphen_values = true)]
+        definition: Option<String>,
+        #[arg(long, allow_hyphen_values = true)]
+        status: Option<String>,
+        #[arg(long)]
+        pin: bool,
+        #[arg(long)]
+        unpin: bool,
+        #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
+        label: Vec<String>,
+    },
+    /// Delete a label with its history and keep capture from bringing it back.
+    Forget {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long)]
+        session: String,
+        #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
+        label: Vec<String>,
+    },
+    /// Let capture define a forgotten label again (deleted history stays gone).
+    Unforget {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long)]
+        session: String,
+        #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
+        label: Vec<String>,
+    },
+}
+
+/// Which correction `edit` makes; clap guarantees exactly one is given.
+fn edit_action(
+    definition: Option<String>,
+    status: Option<String>,
+    pin: bool,
+    unpin: bool,
+) -> Result<edit::Action> {
+    match (definition, status, pin, unpin) {
+        (Some(text), None, false, false) => Ok(edit::Action::Definition(text)),
+        (None, Some(text), false, false) => Ok(edit::Action::Status(text)),
+        (None, None, true, false) => Ok(edit::Action::Pin(true)),
+        (None, None, false, true) => Ok(edit::Action::Pin(false)),
+        _ => bail!("edit needs exactly one of --definition, --status, --pin, --unpin"),
+    }
 }
 
 fn open_session(db: &std::path::Path, session: &str) -> Result<rusqlite::Connection> {
@@ -188,6 +242,30 @@ fn run(cli: Cli) -> Result<Value> {
         } => {
             let conn = open_session(&db, &session)?;
             Ok(json!({ "captureOff": session::set_capture_off(&conn, &session, off)? }))
+        }
+        Command::Edit {
+            db,
+            session,
+            definition,
+            status,
+            pin,
+            unpin,
+            label,
+        } => {
+            let action = edit_action(definition, status, pin, unpin)?;
+            let mut conn = open_session(&db, &session)?;
+            edit::edit(&mut conn, &session, &label.join(" "), action)?;
+            Ok(json!({ "ok": true }))
+        }
+        Command::Forget { db, session, label } => {
+            let mut conn = open_session(&db, &session)?;
+            edit::forget(&mut conn, &session, &label.join(" "))?;
+            Ok(json!({ "ok": true }))
+        }
+        Command::Unforget { db, session, label } => {
+            let conn = open_session(&db, &session)?;
+            edit::unforget(&conn, &session, &label.join(" "))?;
+            Ok(json!({ "ok": true }))
         }
         Command::Show { .. } | Command::List { .. } | Command::History { .. } => {
             unreachable!("text commands are handled by dispatch")
