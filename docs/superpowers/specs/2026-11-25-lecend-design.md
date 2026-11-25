@@ -178,6 +178,11 @@ A change is accepted only if:
   `redefine` and a `status` for the same label in the same turn both apply, the status attached to
   the new definition version). Applying the same `turnId` twice is a no-op.
 
+Label identity is case-insensitive (`w6` and `W6` are one label; the first spelling is kept). The
+"quote states the meaning" rule has a deterministic floor in Rust: the quote must contain the label
+and at least one word of four or more letters from the proposed definition; the extraction prompt
+carries the rest of the rule.
+
 Rejected changes are kept in a `rejections` table for debugging, not shown by default.
 
 Schema (v1): `terms(session_id, label, pinned, created_turn)`,
