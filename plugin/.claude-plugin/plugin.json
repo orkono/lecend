@@ -1,0 +1,33 @@
+{
+  "name": "lecend",
+  "version": "0.1.0",
+  "description": "Look up the short labels of a long Claude Code session (/lecend W6) and see them in a side pane, without asking the model.",
+  "license": "Apache-2.0",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "model": {
+      "type": "string",
+      "title": "Capture model",
+      "description": "The model lecend sends each captured turn to (an alias such as haiku, or a full model id). Calls are billed to your Claude account.",
+      "default": "haiku"
+    },
+    "capture": {
+      "type": "boolean",
+      "title": "Capture",
+      "description": "Capture labels in the background by sending each turn's text to the capture model. Off: lecend never calls a model.",
+      "default": true
+    },
+    "budgetPerSession": {
+      "type": "number",
+      "title": "Model calls per session",
+      "description": "The most capture model calls one session makes; capture stops when it is reached.",
+      "default": 200
+    },
+    "stoplist": {
+      "type": "string",
+      "title": "Ignored labels",
+      "description": "Comma-separated labels that are never captured, on top of the built-in list (for example: DKIM, SPF).",
+      "default": ""
+    }
+  }
+}

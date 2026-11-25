@@ -1,0 +1,13 @@
+{
+  "name": "lecend",
+  "owner": { "name": "orkono" },
+  "metadata": { "description": "A glossary for long Claude Code sessions: look up what W6, OLD or Decision 1 meant without asking the model." },
+  "plugins": [
+    {
+      "name": "lecend",
+      "source": "./plugin",
+      "description": "Captures the short labels a long session coins and shows their definition and latest status on demand, in a side pane, without asking the model.",
+      "license": "Apache-2.0"
+    }
+  ]
+}

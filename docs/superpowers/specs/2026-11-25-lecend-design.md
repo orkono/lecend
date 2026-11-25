@@ -98,9 +98,10 @@ validation, matching and storage live in the Rust binary, which is testable on i
 Subcommands (all read JSON on stdin where noted, write JSON on stdout, exit non-zero with a JSON
 error on failure). Every command takes `--db <path>` and `--session <id>`.
 
-- `lecend scan` (stdin: `{ prompt, answer, stoplist[] }`) → `{ shouldCall, knownLabels[], candidates[],
-  entries[] }`. Finds known labels of this session that appear in the text, and label-shaped
-  candidates. `shouldCall` is false only when there is neither.
+- `lecend scan` (stdin: `{ prompt, answer, stoplist[], mentionsOnly? }`) → `{ shouldCall, knownLabels[],
+  candidates[], mentioned[], entries[] }`. Finds known labels of this session that appear in the text
+  (`mentioned`), and label-shaped candidates. `shouldCall` is false only when there is neither. With
+  `mentionsOnly: true` no candidates are gathered, so only mentioned known labels count.
 - `lecend apply` (stdin: `{ turnId, prompt, answer, stoplist[], diff }`) → `{ applied, rejected[] }`.
   Resolves the turn index from `turnId` (recorded earlier by `lecend turn`), validates the model's
   diff and writes it (see 6.3).
@@ -121,7 +122,10 @@ error on failure). Every command takes `--db <path>` and `--session <id>`.
   `lecend turn` (fast, local), which assigns the turn index once per `turnId` in a transaction;
   then it queues the job and returns. Jobs run strictly in turn order, one at a time, never awaited
   by the turn hook. A failed job is logged to the debug log and dropped; the next
-  turn's job carries on. A per-session budget (default: 200 model calls) stops capture when reached,
+  turn's job carries on. A job keeps the session id resolved when it was queued. Only a prompt the
+  person entered (`prompt.submit` origin `composer` or `bridge`, or none) is sent with its turn; a
+  turn started by a notification, schedule, peer or the SDK is captured with an empty prompt and
+  scanned with `mentionsOnly`. A per-session budget (default: 200 model calls) stops capture when reached,
   with a one-time toast.
 - `/lecend` (list), `/lecend <label>` (one entry with definition, latest status, last update and the
   source quote), `/lecend pane`, `/lecend history <label>`, `/lecend edit …`, `/lecend forget …`,
@@ -143,7 +147,7 @@ error on failure). Every command takes `--db <path>` and `--session <id>`.
 Short tokens the session uses as names: uppercase words of 2–8 letters (`OLD`, `NEW`, `DKIM`
 excluded by stoplist), letter+digit mixes (`W6`, `D4`, `8a`), and "Word N" forms in any language
 (`Decision 1`, `Karar 1`). A built-in stoplist removes common acronyms (`OK`, `API`, `URL`, `TODO`,
-`JSON`, `SQL`, …); the user extends it with the `stoplist` setting. The gate is deliberately permissive: it decides whether
+`JSON`, `SQL`, …) and git/shell words (`HEAD`, `EOF`, `PATH`, `STDERR`, …); the user extends it with the `stoplist` setting. The gate is deliberately permissive: it decides whether
 to call the model, not what is a label. The model decides that.
 
 ### 6.2 The model call
@@ -156,7 +160,8 @@ is untrusted data, not instructions.
 Output, strict JSON:
 `{ "new": [{ label, definition, quote }], "redefine": [{ label, definition, quote }],
 "status": [{ label, status, quote }] }`. Empty arrays when nothing changed. `redefine` is for a
-label the session now explicitly uses with a different meaning.
+label the session now explicitly uses with a different meaning. The turn text is wrapped in a tag
+with a per-call nonce it does not contain, so it cannot close the wrapper.
 
 ### 6.3 Validation and storage (Rust)
 
@@ -170,6 +175,8 @@ A change is accepted only if:
   the model receives all known names, so this is a model error, not a redefinition);
 - for `redefine`: the quote contains the label and itself states the changed meaning (a quote that
   only mentions the label is not enough); a definition identical to the current one is a no-op;
+- for `status`: a status equal (trimmed, case-insensitive) to the current status of the current
+  definition version is a no-op, neither stored nor counted as a rejection;
 - for `redefine` and `status`: the label is not pinned, and for `redefine` the current definition
   is not user-edited (those are never replaced by the model);
 - the turn index is newer than the label's last update, including the last user edit, so a
@@ -234,7 +241,7 @@ Capture spends tokens on the user's Claude account even when nobody looks anythi
   shows a display-only notice: the model used, a rough per-turn cost, that calls are billed to the user's Claude account
   (and count toward their quota), the per-session budget, and how to stop it (`/lecend off` for
   this session, the `capture` setting for all sessions). It is a transcript row that never goes to
-  the model.
+  the model, followed by a short toast (a failed toast does not count as a failed notice).
 - The README states this up front with a rough per-turn figure, how to switch capture off (`/lecend off`, or the
 `capture` setting) and how to pick a model. `/lecend` shows the session's capture call count.
 

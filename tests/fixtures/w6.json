@@ -1,0 +1,65 @@
+[
+  {
+    "turnId": "t-1",
+    "prompt": "We are moving the mail service to a new machine. Call the old server OLD and the new server NEW. Plan the cutover for maintenance window W6, and an acceptance test D4.",
+    "answer": "Understood. OLD is the current production server that is being retired. NEW is the replacement server that will receive the mailboxes. W6 is the maintenance window on Saturday night when the cutover happens. D4 is the acceptance test that checks mail delivery after the cutover.",
+    "diff": {
+      "new": [
+        {
+          "label": "OLD",
+          "definition": "Current production server, being retired",
+          "quote": "OLD is the current production server that is being retired."
+        },
+        {
+          "label": "NEW",
+          "definition": "Replacement server that receives the mailboxes",
+          "quote": "NEW is the replacement server that will receive the mailboxes."
+        },
+        {
+          "label": "W6",
+          "definition": "Saturday night maintenance window for the cutover",
+          "quote": "W6 is the maintenance window on Saturday night when the cutover happens."
+        },
+        {
+          "label": "D4",
+          "definition": "Acceptance test checking mail delivery after the cutover",
+          "quote": "D4 is the acceptance test that checks mail delivery after the cutover."
+        }
+      ],
+      "redefine": [],
+      "status": []
+    }
+  },
+  {
+    "turnId": "t-2",
+    "prompt": "W6 is approved, go ahead.",
+    "answer": "Noted, the W6 window is approved for Saturday.",
+    "diff": {
+      "new": [],
+      "redefine": [],
+      "status": [
+        {
+          "label": "W6",
+          "status": "Approved for Saturday",
+          "quote": "Noted, the W6 window is approved for Saturday."
+        }
+      ]
+    }
+  },
+  {
+    "turnId": "t-3",
+    "prompt": "How is the migration going?",
+    "answer": "Preparation is done, but NEW is unreachable over the network, so the cutover cannot start.",
+    "diff": {
+      "new": [],
+      "redefine": [],
+      "status": [
+        {
+          "label": "NEW",
+          "status": "Unreachable over the network",
+          "quote": "NEW is unreachable over the network"
+        }
+      ]
+    }
+  }
+]
