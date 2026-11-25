@@ -91,7 +91,7 @@ test('a notification turn without a known label makes no model call', async ($, 
   const world = fakeWorld(on)
 
   await start($)
-  await notifiedTurn($, clock, 't-1', 'HEAD 1992ad0 is clean; W9 next')
+  await notifiedTurn($, clock, world, 't-1', 'HEAD 1992ad0 is clean; W9 next')
 
   expect(scanned(world)).toEqual([
     { prompt: '', answer: 'HEAD 1992ad0 is clean; W9 next', stoplist: [], mentionsOnly: true },
@@ -105,7 +105,7 @@ test('a notification turn that mentions a known label is captured without its pr
   world.mentioned = ['W6']
 
   await start($)
-  await notifiedTurn($, clock, 't-1', 'W6 is a window', 'sdk')
+  await notifiedTurn($, clock, world, 't-1', 'W6 is a window', 'sdk')
 
   expect(models(world)).toBe(1)
   expect(appliedPrompts(world)).toEqual([''])
@@ -117,13 +117,24 @@ test('a typed turn scans for new candidates, and its origin does not leak to the
   const world = fakeWorld(on)
 
   await start($)
-  await notifiedTurn($, clock, 't-1', 'nothing here')
+  await notifiedTurn($, clock, world, 't-1', 'nothing here')
   await $.prompt.submit({ text: 'Define W6', wait: false, origin: { kind: 'composer' } })
   await turn($, clock, 't-2', 'W6 is a window', 'Define W6')
   await turn($, clock, 't-3', 'W6 again', '')
 
   expect(scanned(world).map(input => input.mentionsOnly)).toEqual([true, false, false])
   expect(world.logs).toContain('lecend: turn t-2: model call for candidates W6')
+})
+
+test('a prompt that starts no turn leaves no origin for the next turn', async ($, on) => {
+  const clock = mock.clock(on)
+  const world = fakeWorld(on)
+
+  await start($)
+  await $.prompt.submit({ text: '/lecend W6', wait: false, origin: { kind: 'task-notification' } })
+  await turn($, clock, 't-1', 'W6 is a window', 'continue')
+
+  expect(scanned(world).map(input => input.mentionsOnly)).toEqual([false])
 })
 
 test('a job runs against the session it was queued in', async ($, on) => {
