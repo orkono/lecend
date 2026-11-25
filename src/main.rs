@@ -1,4 +1,6 @@
 mod db;
+mod labels;
+mod scan;
 mod session;
 
 use std::io::Read;
@@ -63,6 +65,13 @@ enum Command {
         #[arg(long = "check-and-set", required = true)]
         check_and_set: bool,
     },
+    /// Decide whether a turn needs the model (stdin `{prompt, answer, stoplist}`).
+    Scan {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long)]
+        session: String,
+    },
     /// Switch capture off or on for the session.
     Capture {
         #[arg(long)]
@@ -82,11 +91,16 @@ fn open_session(db: &std::path::Path, session: &str) -> Result<rusqlite::Connect
     Ok(conn)
 }
 
-fn read_turn_id() -> Result<String> {
+fn read_stdin() -> Result<String> {
     let mut buf = String::new();
     std::io::stdin()
         .read_to_string(&mut buf)
         .context("cannot read stdin")?;
+    Ok(buf)
+}
+
+fn read_turn_id() -> Result<String> {
+    let buf = read_stdin()?;
     let v: Value = serde_json::from_str(&buf).context("stdin is not valid JSON")?;
     match v.get("turnId").and_then(Value::as_str) {
         Some(id) if !id.is_empty() => Ok(id.to_string()),
@@ -123,6 +137,10 @@ fn run(cli: Cli) -> Result<Value> {
         Command::Notice { db, session, .. } => {
             let conn = open_session(&db, &session)?;
             Ok(json!({ "shown": session::check_and_set_notice(&conn)? }))
+        }
+        Command::Scan { db, session } => {
+            let conn = open_session(&db, &session)?;
+            scan::run(&conn, &session, &read_stdin()?)
         }
         Command::Capture {
             db, session, off, ..
