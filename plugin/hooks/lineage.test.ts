@@ -34,6 +34,19 @@ test('fork with parent glossary copies before first turn is recorded', async ($,
   expect(subs(world)).toContain('list')
 })
 
+test('carry-over calls use the 2 s timeout', async ($, on) => {
+  const clock = mock.clock(on)
+  const world = forkedWorld(on, 'timeouts-a')
+
+  await start($)
+  await turn($, clock, 't-1', 'W6 is a window')
+
+  const beforeTurn = world.runs.slice(0, world.runs.findIndex(run => run.sub === 'turn'))
+  const carry = beforeTurn.filter(run => ['state', 'lineage', 'fork'].includes(run.sub))
+  expect(carry.map(run => run.sub)).toEqual(['state', 'lineage', 'state', 'fork'])
+  expect(carry.map(run => run.timeoutMs)).toEqual([2000, 2000, 2000, 2000])
+})
+
 test('fresh session does not fork', async ($, on) => {
   const clock = mock.clock(on)
   const world = forkedWorld(on, 'fresh-a')
