@@ -1,7 +1,7 @@
 //! The `apply` subcommand: validates a model diff for one turn and stores the
 //! accepted changes in one transaction (spec 6.3).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::{Context, Result};
 use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
@@ -44,19 +44,25 @@ struct Diff {
 
 #[derive(Deserialize, Serialize)]
 struct DefinitionOp {
+    #[serde(default)]
     label: String,
+    #[serde(default)]
     definition: String,
+    #[serde(default)]
     quote: String,
 }
 
 #[derive(Deserialize, Serialize)]
 struct StatusOp {
+    #[serde(default)]
     label: String,
+    #[serde(default)]
     status: String,
+    #[serde(default)]
     quote: String,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum Kind {
     New,
     Redefine,
@@ -118,7 +124,7 @@ struct LabelState {
 
 fn op_list(diff: Diff) -> Result<Vec<Op>> {
     let make = |kind, label: &str, text: &str, quote: &str, payload: Value| {
-        let label = label.trim().to_string();
+        let label = collapse_ws(label);
         Op {
             kind,
             key: label.to_lowercase(),
@@ -139,7 +145,19 @@ fn op_list(diff: Diff) -> Result<Vec<Op>> {
         let payload = serde_json::to_value(&s)?;
         ops.push(make(Kind::Status, &s.label, &s.status, &s.quote, payload));
     }
-    Ok(ops)
+    Ok(keep_last_duplicates(ops))
+}
+
+/// Of several ops with the same kind and label key, only the last one is kept.
+fn keep_last_duplicates(ops: Vec<Op>) -> Vec<Op> {
+    let mut seen = HashSet::new();
+    let mut kept: Vec<Op> = ops
+        .into_iter()
+        .rev()
+        .filter(|op| seen.insert((op.kind, op.key.clone())))
+        .collect();
+    kept.reverse();
+    kept
 }
 
 /// Collapses every run of whitespace to one space and trims the ends.
@@ -180,6 +198,9 @@ fn quote_states_meaning(op: &Op) -> bool {
 fn check_text(op: &Op, ctx: &TurnCtx) -> Option<&'static str> {
     if too_long(op) {
         return Some("too-long");
+    }
+    if op.text.is_empty() {
+        return Some("empty");
     }
     if ctx.stop.contains(&op.label) {
         return Some("stoplisted");

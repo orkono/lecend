@@ -464,10 +464,8 @@ fn too_long_label_status_and_quote_rejected() {
             &answer,
             json!({
                 "new":[{"label":label,"definition":"a window","quote":format!("{label} is a window.")}],
-                "status":[
-                    {"label":"W6","status":"a".repeat(201),"quote":"W6 is approved."},
-                    {"label":"W6","status":"approved","quote":long_quote}
-                ]
+                "redefine":[{"label":"W6","definition":"a window","quote":long_quote}],
+                "status":[{"label":"W6","status":"a".repeat(201),"quote":"W6 is approved."}]
             }),
         ),
     );
@@ -476,7 +474,7 @@ fn too_long_label_status_and_quote_rejected() {
         rejected(&v),
         [
             rej("new", &label, "too-long"),
-            rej("status", "W6", "too-long"),
+            rej("redefine", "W6", "too-long"),
             rej("status", "W6", "too-long")
         ]
     );
