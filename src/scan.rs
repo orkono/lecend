@@ -8,6 +8,7 @@ use rusqlite::Connection;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use crate::entry::{self, Entry};
 use crate::labels::{self, Stoplist};
 
 const MAX_KNOWN_LABELS: usize = 50;
@@ -23,13 +24,6 @@ struct ScanInput {
     stoplist: Vec<String>,
 }
 
-/// A glossary entry as the model sees it.
-struct Entry {
-    label: String,
-    definition: String,
-    status: Option<String>,
-}
-
 pub fn parse_input(raw: &str) -> Result<(String, Vec<String>)> {
     let input: ScanInput = serde_json::from_str(raw).context("stdin is not a valid scan object")?;
     Ok((
@@ -41,43 +35,10 @@ pub fn parse_input(raw: &str) -> Result<(String, Vec<String>)> {
 /// Current entries of the session, most recently updated first; forgotten
 /// labels and stoplist hits are left out.
 fn load_entries(conn: &Connection, sid: &str, stop: &Stoplist) -> Result<Vec<Entry>> {
-    let mut stmt = conn.prepare(
-        "SELECT t.label,
-                COALESCE((SELECT d.definition FROM definitions d
-                          WHERE d.session_id = t.session_id AND d.label_key = t.label_key
-                          ORDER BY d.version DESC LIMIT 1), ''),
-                (SELECT s.status FROM statuses s
-                 WHERE s.session_id = t.session_id AND s.label_key = t.label_key
-                   AND s.definition_version IS
-                       (SELECT max(d.version) FROM definitions d
-                        WHERE d.session_id = t.session_id AND d.label_key = t.label_key)
-                 ORDER BY s.turn_index DESC, s.rowid DESC LIMIT 1),
-                max(COALESCE(t.created_turn, 0),
-                    COALESCE((SELECT max(d.turn_index) FROM definitions d
-                              WHERE d.session_id = t.session_id AND d.label_key = t.label_key), 0),
-                    COALESCE((SELECT max(s.turn_index) FROM statuses s
-                              WHERE s.session_id = t.session_id AND s.label_key = t.label_key), 0))
-                AS updated
-         FROM terms t
-         WHERE t.session_id = ?1
-           AND t.label_key NOT IN (SELECT label_key FROM ignores WHERE session_id = ?1)
-         ORDER BY updated DESC, t.rowid DESC",
-    )?;
-    let rows = stmt.query_map([sid], |r| {
-        Ok(Entry {
-            label: r.get(0)?,
-            definition: r.get(1)?,
-            status: r.get(2)?,
-        })
-    })?;
-    let mut out = Vec::new();
-    for row in rows {
-        let entry = row?;
-        if !stop.contains(&entry.label) {
-            out.push(entry);
-        }
-    }
-    Ok(out)
+    Ok(entry::load(conn, sid)?
+        .into_iter()
+        .filter(|e| !stop.contains(&e.label))
+        .collect())
 }
 
 fn ignored_keys(conn: &Connection, sid: &str) -> Result<HashSet<String>> {

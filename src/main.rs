@@ -1,6 +1,8 @@
 mod apply;
 mod db;
+mod entry;
 mod labels;
+mod query;
 mod scan;
 mod session;
 
@@ -91,6 +93,33 @@ enum Command {
         #[arg(long)]
         on: bool,
     },
+    /// Show one label (remaining args joined by a space).
+    Show {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long)]
+        session: String,
+        #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
+        label: Vec<String>,
+    },
+    /// List all labels, most recently updated first.
+    List {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long)]
+        session: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show every definition version and status of a label.
+    History {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long)]
+        session: String,
+        #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
+        label: Vec<String>,
+    },
 }
 
 fn open_session(db: &std::path::Path, session: &str) -> Result<rusqlite::Connection> {
@@ -160,6 +189,26 @@ fn run(cli: Cli) -> Result<Value> {
             let conn = open_session(&db, &session)?;
             Ok(json!({ "captureOff": session::set_capture_off(&conn, &session, off)? }))
         }
+        Command::Show { .. } | Command::List { .. } | Command::History { .. } => {
+            unreachable!("text commands are handled by dispatch")
+        }
+    }
+}
+
+/// Runs a command and returns what to print on stdout (text for the query
+/// commands, JSON otherwise).
+fn dispatch(cli: Cli) -> Result<String> {
+    match cli.command {
+        Command::Show { db, session, label } => {
+            query::show(&open_session(&db, &session)?, &session, &label.join(" "))
+        }
+        Command::List { db, session, json } => {
+            query::list(&open_session(&db, &session)?, &session, json)
+        }
+        Command::History { db, session, label } => {
+            query::history(&open_session(&db, &session)?, &session, &label.join(" "))
+        }
+        command => Ok(run(Cli { command })?.to_string()),
     }
 }
 
@@ -176,8 +225,8 @@ fn main() {
         }
         fail(anyhow::anyhow!(e.to_string().trim().to_string()))
     });
-    match run(cli) {
-        Ok(v) => println!("{v}"),
+    match dispatch(cli) {
+        Ok(out) => println!("{out}"),
         Err(e) => fail(e),
     }
 }
