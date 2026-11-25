@@ -8,6 +8,9 @@ const BUILTIN_STOPLIST: &[&str] = &[
     "HTTPS", "CLI", "UI", "PR", "CI", "CD", "DB", "OS", "AI", "LLM", "MCP", "SSH", "VPN", "DNS",
     "TLS", "SSL", "IP", "CPU", "GPU", "RAM", "PDF", "CSV", "HTML", "CSS", "NOTE", "WARN", "ERROR",
     "INFO", "DEBUG", "README", "MIT", "GPL",
+    // Git and shell words; `ORIG_HEAD` and `FETCH_HEAD` split at `_` into `ORIG`/`FETCH` + `HEAD`.
+    "HEAD", "ORIG", "FETCH", "MERGE", "EOF", "PATH", "ENV", "SHA", "PID", "TTY", "STDIN", "STDOUT",
+    "STDERR",
 ];
 
 /// Built-in stoplist plus user additions, compared case-insensitively.
@@ -157,6 +160,12 @@ mod tests {
     #[test]
     fn skips_builtin_stoplist_ok_api() {
         assert!(cands("OK, the API returns JSON").is_empty());
+    }
+
+    #[test]
+    fn skips_git_and_shell_words() {
+        let t = "HEAD 1992ad0, ORIG_HEAD, FETCH_HEAD, MERGE_HEAD, EOF, PATH, ENV, SHA, PID, TTY, STDIN, STDOUT, STDERR";
+        assert!(cands(t).is_empty(), "{:?}", cands(t));
     }
 
     #[test]

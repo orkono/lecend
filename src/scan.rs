@@ -22,14 +22,25 @@ struct ScanInput {
     answer: String,
     #[serde(default)]
     stoplist: Vec<String>,
+    /// Set for a turn the person did not type (a notification): only known
+    /// labels mentioned in it may trigger the model call, no new candidates.
+    #[serde(default, rename = "mentionsOnly")]
+    mentions_only: bool,
 }
 
-pub fn parse_input(raw: &str) -> Result<(String, Vec<String>)> {
+struct Scan {
+    text: String,
+    stoplist: Vec<String>,
+    mentions_only: bool,
+}
+
+fn parse_input(raw: &str) -> Result<Scan> {
     let input: ScanInput = serde_json::from_str(raw).context("stdin is not a valid scan object")?;
-    Ok((
-        format!("{}\n{}", input.prompt, input.answer),
-        input.stoplist,
-    ))
+    Ok(Scan {
+        text: format!("{}\n{}", input.prompt, input.answer),
+        stoplist: input.stoplist,
+        mentions_only: input.mentions_only,
+    })
 }
 
 /// Current entries of the session, most recently updated first; forgotten
@@ -57,23 +68,41 @@ fn pick_entries<'a>(entries: &'a [Entry], mentioned: &HashSet<String>) -> Vec<&'
     hit.into_iter().chain(rest).take(MAX_ENTRIES).collect()
 }
 
-pub fn run(conn: &Connection, sid: &str, raw: &str) -> Result<Value> {
-    let (text, user_stop) = parse_input(raw)?;
-    let stop = Stoplist::new(&user_stop);
-    let entries = load_entries(conn, sid, &stop)?;
-    let known: Vec<String> = entries.iter().map(|e| e.label.clone()).collect();
-    let mentioned = labels::mentions(&text, &known);
-    let mentioned_keys: HashSet<String> = mentioned.iter().map(|l| l.to_lowercase()).collect();
-
+/// Label-shaped tokens of `text` that are neither known nor forgotten.
+fn new_candidates(
+    conn: &Connection,
+    sid: &str,
+    text: &str,
+    stop: &Stoplist,
+    known: &[String],
+) -> Result<Vec<String>> {
     let ignored = ignored_keys(conn, sid)?;
     let known_keys: HashSet<String> = known.iter().map(|l| l.to_lowercase()).collect();
-    let candidates: Vec<String> = labels::candidates(&text, &stop)
+    Ok(labels::candidates(text, stop)
         .into_iter()
         .filter(|c| {
             let key = c.to_lowercase();
             !ignored.contains(&key) && !known_keys.contains(&key)
         })
-        .collect();
+        .collect())
+}
+
+pub fn run(conn: &Connection, sid: &str, raw: &str) -> Result<Value> {
+    let Scan {
+        text,
+        stoplist,
+        mentions_only,
+    } = parse_input(raw)?;
+    let stop = Stoplist::new(&stoplist);
+    let entries = load_entries(conn, sid, &stop)?;
+    let known: Vec<String> = entries.iter().map(|e| e.label.clone()).collect();
+    let mentioned = labels::mentions(&text, &known);
+    let mentioned_keys: HashSet<String> = mentioned.iter().map(|l| l.to_lowercase()).collect();
+    let candidates = if mentions_only {
+        Vec::new()
+    } else {
+        new_candidates(conn, sid, &text, &stop, &known)?
+    };
 
     let picked: Vec<Value> = pick_entries(&entries, &mentioned_keys)
         .into_iter()
@@ -83,6 +112,7 @@ pub fn run(conn: &Connection, sid: &str, raw: &str) -> Result<Value> {
         "shouldCall": !mentioned.is_empty() || !candidates.is_empty(),
         "knownLabels": known.iter().take(MAX_KNOWN_LABELS).collect::<Vec<_>>(),
         "candidates": candidates,
+        "mentioned": mentioned,
         "entries": picked,
     }))
 }

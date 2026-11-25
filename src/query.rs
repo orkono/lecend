@@ -21,18 +21,40 @@ fn missing(label: &str) -> String {
     format!("No record for \"{label}\".")
 }
 
-/// (quote, turn) of the current status, else of the current definition.
-fn source(conn: &Connection, sid: &str, key: &str) -> Result<Option<(String, Option<i64>)>> {
+/// Where the current text came from: the quote it was captured from, or a user edit.
+struct Source {
+    quote: String,
+    turn: Option<i64>,
+    by_user: bool,
+}
+
+impl Source {
+    fn line(&self) -> String {
+        let turn = self
+            .turn
+            .map(|t| format!(" (turn {t})"))
+            .unwrap_or_default();
+        if self.by_user {
+            format!("    source: edited by you{turn}\n")
+        } else {
+            format!("    source: \"{}\"{turn}\n", self.quote)
+        }
+    }
+}
+
+/// Source of the current status, else of the current definition.
+fn source(conn: &Connection, sid: &str, key: &str) -> Result<Option<Source>> {
     let row = |sql: &str| {
         conn.query_row(sql, rusqlite::params![sid, key], |r| {
-            Ok((
-                r.get::<_, Option<String>>(0)?.unwrap_or_default(),
-                r.get::<_, Option<i64>>(1)?,
-            ))
+            Ok(Source {
+                quote: r.get::<_, Option<String>>(0)?.unwrap_or_default(),
+                turn: r.get::<_, Option<i64>>(1)?,
+                by_user: r.get::<_, Option<String>>(2)?.as_deref() == Some("user"),
+            })
         })
         .optional()
     };
-    let status = row("SELECT quote, turn_index FROM statuses
+    let status = row("SELECT quote, turn_index, source FROM statuses
          WHERE session_id = ?1 AND label_key = ?2
            AND definition_version IS (SELECT max(version) FROM definitions
                                       WHERE session_id = ?1 AND label_key = ?2)
@@ -41,7 +63,7 @@ fn source(conn: &Connection, sid: &str, key: &str) -> Result<Option<(String, Opt
         return Ok(status);
     }
     Ok(row(
-        "SELECT quote, turn_index FROM definitions
+        "SELECT quote, turn_index, source FROM definitions
          WHERE session_id = ?1 AND label_key = ?2 ORDER BY version DESC LIMIT 1",
     )?)
 }
@@ -57,9 +79,8 @@ pub fn show(conn: &Connection, sid: &str, label: &str) -> Result<String> {
     if let Some(p) = &e.previously {
         out.push_str(&format!("    previously: {p}\n"));
     }
-    if let Some((quote, turn)) = source(conn, sid, &e.label_key)? {
-        let turn = turn.map(|t| format!(" (turn {t})")).unwrap_or_default();
-        out.push_str(&format!("    source: \"{quote}\"{turn}\n"));
+    if let Some(src) = source(conn, sid, &e.label_key)? {
+        out.push_str(&src.line());
     }
     if e.pinned {
         out.push_str("    pinned\n");

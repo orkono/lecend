@@ -92,7 +92,7 @@ fn show_formats_definition_and_status() {
     let out = lecend(&db, &["show", "W6"]);
     assert_eq!(
         out,
-        "W6  maintenance window: rebuild the panel only\n    status: approved; opens on 61797a6\n    previously: old window\n    source: \"approved, go\" (turn 14)\n    pinned\n"
+        "W6  maintenance window: rebuild the panel only\n    status: approved; opens on 61797a6\n    previously: old window\n    source: edited by you (turn 14)\n    pinned\n"
     );
 }
 
@@ -104,6 +104,17 @@ fn show_without_status_uses_definition_quote() {
     assert_eq!(
         lecend(&db, &["show", "A1"]),
         "A1  thing\n    source: \"the thing\" (turn 2)\n"
+    );
+}
+
+#[test]
+fn show_user_edit_names_the_source() {
+    let (_d, db) = fresh();
+    term(&db, "A1", 2, false);
+    def(&db, "A1", 1, "thing", 2, "user", "");
+    assert_eq!(
+        lecend(&db, &["show", "A1"]),
+        "A1  thing\n    source: edited by you (turn 2)\n"
     );
 }
 

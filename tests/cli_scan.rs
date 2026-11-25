@@ -132,3 +132,36 @@ fn huge_answer_100kb_is_fine() {
     assert!(t.elapsed().as_secs_f64() < 1.0);
     assert_eq!(v["shouldCall"], false);
 }
+
+#[test]
+fn mentions_only_ignores_new_candidates() {
+    let (_d, db) = fresh();
+    let v = scan(
+        &db,
+        json!({"prompt":"","answer":"Run W6 tonight","mentionsOnly":true}),
+    );
+    assert_eq!(v["shouldCall"], false);
+    assert_eq!(v["candidates"], json!([]));
+}
+
+#[test]
+fn mentions_only_calls_for_a_known_label() {
+    let (_d, db) = fresh();
+    seed(&db, "W6", "maintenance window", 1);
+    let v = scan(
+        &db,
+        json!({"prompt":"","answer":"W6 is done; D4 next","mentionsOnly":true}),
+    );
+    assert_eq!(v["shouldCall"], true);
+    assert_eq!(v["candidates"], json!([]));
+    assert_eq!(v["mentioned"], json!(["W6"]));
+}
+
+#[test]
+fn mentioned_labels_are_reported() {
+    let (_d, db) = fresh();
+    seed(&db, "W6", "maintenance window", 1);
+    let v = scan(&db, json!({"prompt":"","answer":"W6 and D4"}));
+    assert_eq!(v["mentioned"], json!(["W6"]));
+    assert_eq!(v["candidates"], json!(["D4"]));
+}

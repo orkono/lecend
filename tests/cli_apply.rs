@@ -275,6 +275,39 @@ fn redefine_same_text_is_noop() {
 }
 
 #[test]
+fn unchanged_status_is_noop() {
+    let (_d, db) = fresh();
+    define_w6(&db);
+    turn(&db, "t-2");
+    assert_eq!(
+        apply(&db, status_w6("t-2", "W6 is approved.", "approved"))["applied"],
+        1
+    );
+    turn(&db, "t-3");
+    let v = apply(&db, status_w6("t-3", "W6 is Approved.", " Approved "));
+    assert_eq!(v, json!({"applied":0,"rejected":[]}));
+    assert_eq!(statuses(&db, "w6").len(), 1);
+    assert_eq!(count(&db, "SELECT count(*) FROM rejections"), 0);
+}
+
+#[test]
+fn same_status_after_redefine_is_stored() {
+    let (_d, db) = fresh();
+    define_w6(&db);
+    turn(&db, "t-2");
+    assert_eq!(
+        apply(&db, status_w6("t-2", "W6 is approved.", "approved"))["applied"],
+        1
+    );
+    turn(&db, "t-3");
+    assert_eq!(apply(&db, redefine_w6("t-3"))["applied"], 1);
+    turn(&db, "t-4");
+    let v = apply(&db, status_w6("t-4", "W6 is approved.", "approved"));
+    assert_eq!(v, json!({"applied":1,"rejected":[]}));
+    assert_eq!(statuses(&db, "w6").len(), 2);
+}
+
+#[test]
 fn redefine_and_status_same_turn_both_apply() {
     let (_d, db) = fresh();
     define_w6(&db);

@@ -120,6 +120,8 @@ struct LabelState {
     version: i64,
     definition: String,
     user_edited: bool,
+    /// The latest status of the current definition version.
+    status: Option<String>,
 }
 
 fn op_list(diff: Diff) -> Result<Vec<Op>> {
@@ -239,6 +241,26 @@ fn is_ignored(tx: &Transaction, sid: &str, key: &str) -> Result<bool> {
 }
 
 fn label_state(tx: &Transaction, sid: &str, key: &str) -> Result<Option<LabelState>> {
+    let Some(mut state) = definition_state(tx, sid, key)? else {
+        return Ok(None);
+    };
+    state.status = current_status(tx, sid, key, state.version)?;
+    Ok(Some(state))
+}
+
+fn current_status(tx: &Transaction, sid: &str, key: &str, version: i64) -> Result<Option<String>> {
+    Ok(tx
+        .query_row(
+            "SELECT status FROM statuses
+             WHERE session_id = ?1 AND label_key = ?2 AND definition_version = ?3
+             ORDER BY turn_index DESC, rowid DESC LIMIT 1",
+            params![sid, key, version],
+            |r| r.get(0),
+        )
+        .optional()?)
+}
+
+fn definition_state(tx: &Transaction, sid: &str, key: &str) -> Result<Option<LabelState>> {
     Ok(tx
         .query_row(
             "SELECT t.pinned, d.version, d.definition, d.source
@@ -253,6 +275,7 @@ fn label_state(tx: &Transaction, sid: &str, key: &str) -> Result<Option<LabelSta
                     version: r.get(1)?,
                     definition: r.get(2)?,
                     user_edited: r.get::<_, Option<String>>(3)?.as_deref() == Some("user"),
+                    status: None,
                 })
             },
         )
@@ -268,6 +291,11 @@ fn last_update(tx: &Transaction, sid: &str, key: &str) -> Result<Option<i64>> {
         params![sid, key],
         |r| r.get(0),
     )?)
+}
+
+/// Whether `text` restates `current` (trimmed, case-insensitive).
+fn same_status(current: Option<&str>, text: &str) -> bool {
+    current.is_some_and(|c| c.trim().to_lowercase() == text.trim().to_lowercase())
 }
 
 /// Checks against the stored glossary; `state` is the label's live state.
@@ -292,6 +320,9 @@ fn check_state(op: &Op, ctx: &TurnCtx, state: Option<&LabelState>) -> Outcome {
         return Outcome::Reject("not-newer");
     }
     if op.kind == Kind::Redefine && state.definition.trim() == op.text {
+        return Outcome::Noop;
+    }
+    if op.kind == Kind::Status && same_status(state.status.as_deref(), &op.text) {
         return Outcome::Noop;
     }
     Outcome::Accept
