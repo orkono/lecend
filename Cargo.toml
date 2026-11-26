@@ -1,10 +1,10 @@
 [package]
 name = "lecend"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.85"
 license = "Apache-2.0"
-exclude = [".superpowers/", "docs/superpowers/", "plugin/", ".github/", "scripts/"]
+exclude = [".superpowers/", "docs/superpowers/", "plugin/", ".github/", "scripts/", "assets/"]
 description = "Captures the short labels of a long Claude Code session (W6, OLD, NEW) into a local glossary you can look up without the model"
 repository = "https://github.com/orkono/lecend"
 homepage = "https://github.com/orkono/lecend"
