@@ -108,6 +108,31 @@ fn enable_wal(conn: &Connection) -> Result<()> {
     }
 }
 
+/// Total time a command is retried for when SQLite reports the database busy.
+pub const COMMAND_RETRY_BUDGET: Duration = Duration::from_secs(10);
+
+/// Runs `f` again while it fails with SQLITE_BUSY/LOCKED, until `budget` runs out.
+/// Some busy errors skip SQLite's busy handler (seen on Windows under parallel
+/// opens); a busy statement changed nothing, so the whole command is safe to rerun.
+pub fn retry_busy<T>(budget: Duration, mut f: impl FnMut() -> Result<T>) -> Result<T> {
+    let started = Instant::now();
+    let mut attempt: u32 = 0;
+    loop {
+        match f() {
+            Err(e) if chain_is_busy(&e) && started.elapsed() < budget => {
+                attempt += 1;
+                std::thread::sleep(WAL_RETRY_PAUSE * attempt.min(10));
+            }
+            other => return other,
+        }
+    }
+}
+
+fn chain_is_busy(e: &anyhow::Error) -> bool {
+    e.chain()
+        .any(|cause| cause.downcast_ref::<rusqlite::Error>().is_some_and(is_busy))
+}
+
 fn is_busy(e: &rusqlite::Error) -> bool {
     matches!(
         e.sqlite_error_code(),
@@ -176,4 +201,50 @@ fn create_if_still_missing(conn: &Connection) -> Result<()> {
         conn.execute_batch(SCHEMA_V1)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod retry_tests {
+    use super::*;
+    use std::cell::Cell;
+
+    fn busy() -> anyhow::Error {
+        anyhow::Error::new(rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY),
+            Some("database is locked".into()),
+        ))
+        .context("cannot record turn")
+    }
+
+    #[test]
+    fn retries_a_busy_command_until_it_succeeds() {
+        let calls = Cell::new(0);
+        let out = retry_busy(Duration::from_secs(5), || {
+            calls.set(calls.get() + 1);
+            if calls.get() < 3 {
+                Err(busy())
+            } else {
+                Ok(7)
+            }
+        });
+        assert_eq!(out.unwrap(), 7);
+        assert_eq!(calls.get(), 3);
+    }
+
+    #[test]
+    fn other_errors_are_not_retried() {
+        let calls = Cell::new(0);
+        let out: Result<()> = retry_busy(Duration::from_secs(5), || {
+            calls.set(calls.get() + 1);
+            bail!("bad input")
+        });
+        assert_eq!(out.unwrap_err().to_string(), "bad input");
+        assert_eq!(calls.get(), 1);
+    }
+
+    #[test]
+    fn gives_up_after_the_budget() {
+        let out: Result<()> = retry_busy(Duration::from_millis(50), || Err(busy()));
+        assert!(format!("{:#}", out.unwrap_err()).contains("database is locked"));
+    }
 }
