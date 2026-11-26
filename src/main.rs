@@ -17,7 +17,7 @@ use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use serde_json::{json, Value};
 
-#[derive(Parser)]
+#[derive(Parser, Clone)]
 #[command(
     name = "lecend",
     version,
@@ -28,7 +28,7 @@ struct Cli {
     command: Command,
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Clone)]
 enum Command {
     /// Print the crate version as JSON.
     Version,
@@ -210,24 +210,32 @@ fn open_session(db: &std::path::Path, session: &str) -> Result<rusqlite::Connect
     Ok(conn)
 }
 
-fn read_stdin() -> Result<String> {
-    let mut buf = String::new();
-    std::io::stdin()
-        .read_to_string(&mut buf)
-        .context("cannot read stdin")?;
-    Ok(buf)
-}
+/// Standard input, read once on first use so a retried command sees it again.
+#[derive(Default)]
+struct Stdin(std::cell::OnceCell<String>);
 
-fn read_turn_id() -> Result<String> {
-    let buf = read_stdin()?;
-    let v: Value = serde_json::from_str(&buf).context("stdin is not valid JSON")?;
-    match v.get("turnId").and_then(Value::as_str) {
-        Some(id) if !id.is_empty() => Ok(id.to_string()),
-        _ => bail!("stdin must be a JSON object with a non-empty string \"turnId\""),
+impl Stdin {
+    fn text(&self) -> Result<&str> {
+        if let Some(text) = self.0.get() {
+            return Ok(text);
+        }
+        let mut buf = String::new();
+        std::io::stdin()
+            .read_to_string(&mut buf)
+            .context("cannot read stdin")?;
+        Ok(self.0.get_or_init(|| buf))
+    }
+
+    fn turn_id(&self) -> Result<String> {
+        let v: Value = serde_json::from_str(self.text()?).context("stdin is not valid JSON")?;
+        match v.get("turnId").and_then(Value::as_str) {
+            Some(id) if !id.is_empty() => Ok(id.to_string()),
+            _ => bail!("stdin must be a JSON object with a non-empty string \"turnId\""),
+        }
     }
 }
 
-fn run(cli: Cli) -> Result<Value> {
+fn run(cli: Cli, stdin: &Stdin) -> Result<Value> {
     match cli.command {
         Command::Version => Ok(json!({ "version": env!("CARGO_PKG_VERSION") })),
         Command::Doctor { db, session } => {
@@ -242,7 +250,7 @@ fn run(cli: Cli) -> Result<Value> {
         }
         Command::Turn { db, session } => {
             let conn = open_session(&db, &session)?;
-            let turn_id = read_turn_id()?;
+            let turn_id = stdin.turn_id()?;
             Ok(json!({ "turnIndex": session::record_turn(&conn, &session, &turn_id)? }))
         }
         Command::State { db, session } => {
@@ -267,11 +275,11 @@ fn run(cli: Cli) -> Result<Value> {
         }
         Command::Scan { db, session } => {
             let conn = open_session(&db, &session)?;
-            scan::run(&conn, &session, &read_stdin()?)
+            scan::run(&conn, &session, stdin.text()?)
         }
         Command::Apply { db, session } => {
             let mut conn = open_session(&db, &session)?;
-            apply::run(&mut conn, &session, &read_stdin()?)
+            apply::run(&mut conn, &session, stdin.text()?)
         }
         Command::Capture {
             db, session, off, ..
@@ -325,7 +333,7 @@ fn run(cli: Cli) -> Result<Value> {
 
 /// Runs a command and returns what to print on stdout (text for the query
 /// commands, JSON otherwise).
-fn dispatch(cli: Cli) -> Result<String> {
+fn dispatch(cli: Cli, stdin: &Stdin) -> Result<String> {
     match cli.command {
         Command::Show { db, session, label } => {
             query::show(&open_session(&db, &session)?, &session, &label.join(" "))
@@ -336,7 +344,7 @@ fn dispatch(cli: Cli) -> Result<String> {
         Command::History { db, session, label } => {
             query::history(&open_session(&db, &session)?, &session, &label.join(" "))
         }
-        command => Ok(run(Cli { command })?.to_string()),
+        command => Ok(run(Cli { command }, stdin)?.to_string()),
     }
 }
 
@@ -353,7 +361,8 @@ fn main() {
         }
         fail(anyhow::anyhow!(e.to_string().trim().to_string()))
     });
-    match dispatch(cli) {
+    let stdin = Stdin::default();
+    match db::retry_busy(db::COMMAND_RETRY_BUDGET, || dispatch(cli.clone(), &stdin)) {
         Ok(out) => println!("{out}"),
         Err(e) => fail(e),
     }
