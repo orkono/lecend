@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/icon.svg" width="128" alt="lecend icon"></p>
+
 # lecend
 
 A glossary for long Claude Code sessions.
