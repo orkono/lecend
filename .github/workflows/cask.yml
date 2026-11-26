@@ -14,6 +14,10 @@ on:
         required: true
 permissions:
   contents: read
+# Two runs must not push the tap at once.
+concurrency:
+  group: homebrew-tap
+  cancel-in-progress: false
 jobs:
   cask:
     runs-on: ubuntu-latest
